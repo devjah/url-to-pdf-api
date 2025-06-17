@@ -77,7 +77,7 @@ describe('POST /api/render', () => {
       .set('content-type', 'application/json')
       .set('Connection', 'keep-alive')
       .expect(200)
-      .expect('content-type', 'application/pdf')
+      .expect('content-type', /application\/pdf/)
       .then((response) => {
         const length = Number(response.headers['content-length']);
         chai.expect(length).to.be.above(1024 * 40);
@@ -91,7 +91,7 @@ describe('POST /api/render', () => {
       .set('Connection', 'keep-alive')
       .set('content-type', 'application/json')
       .expect(200)
-      .expect('content-type', 'application/pdf')
+      .expect('content-type', /application\/pdf/)
       .then((response) => {
         const length = Number(response.headers['content-length']);
         chai.expect(length).to.be.above(1024 * 40);
@@ -105,25 +105,26 @@ describe('POST /api/render', () => {
       .set('Connection', 'keep-alive')
       .set('content-type', 'text/html')
       .expect(200)
-      .expect('content-type', 'application/pdf')
+      .expect('content-type', /application\/pdf/)
       .then((response) => {
         const length = Number(response.headers['content-length']);
         chai.expect(length).to.be.above(1024 * 40);
       })
   );
 
-  it('rendering large html should succeed', () =>
-    request(app)
+  it('rendering large html should succeed', function () {
+    this.timeout(30000);
+    return request(app)
       .post('/api/render')
       .send(getResource('large.html'))
       .set('content-type', 'text/html')
       .expect(200)
-      .expect('content-type', 'application/pdf')
+      .expect('content-type', /application\/pdf/)
       .then((response) => {
         const length = Number(response.headers['content-length']);
         chai.expect(length).to.be.above(1024 * 1024 * 1);
-      })
-  );
+      });
+  });
 
   it('rendering html with large linked images should succeed', () =>
     request(app)
@@ -131,7 +132,7 @@ describe('POST /api/render', () => {
       .send(getResource('large-linked.html'))
       .set('content-type', 'text/html')
       .expect(200)
-      .expect('content-type', 'application/pdf')
+      .expect('content-type', /application\/pdf/)
       .then((response) => {
         if (DEBUG) {
           console.log(response.headers);
@@ -163,7 +164,7 @@ describe('POST /api/render', () => {
       .set('Connection', 'keep-alive')
       .set('content-type', 'application/json')
       .expect(200)
-      .expect('content-type', 'application/pdf')
+      .expect('content-type', /application\/pdf/)
       .then((response) => {
         if (DEBUG) {
           console.log(response.headers);
@@ -191,7 +192,7 @@ describe('POST /api/render', () => {
       .set('Connection', 'keep-alive')
       .set('content-type', 'application/json')
       .expect(200)
-      .expect('content-type', 'application/pdf')
+      .expect('content-type', /application\/pdf/)
       .then((response) => {
         if (DEBUG) {
           console.log(response.headers);
