@@ -23,29 +23,29 @@
   },
   "homepage": "https://github.com/alvarcarto/url-to-pdf-api#readme",
   "dependencies": {
-    "bluebird": "^3.5.0",
-    "body-parser": "^1.18.2",
-    "compression": "^1.7.1",
+    "bluebird": "^3.7.2",
+    "body-parser": "^1.20.3",
+    "compression": "^1.8.0",
     "cors": "^2.8.4",
-    "express": "^4.15.5",
+    "express": "^4.21.2",
     "express-validation": "^1.0.2",
     "joi": "^11.1.1",
-    "lodash": "^4.17.15",
-    "morgan": "^1.9.1",
-    "normalize-url": "^5.0.0",
+    "lodash": "^4.17.21",
+    "morgan": "^1.10.0",
+    "normalize-url": "^5.3.1",
     "pdf-parse": "^1.1.1",
     "puppeteer": "^24.10.1",
     "server-destroy": "^1.0.1",
     "winston": "^2.3.1"
   },
   "devDependencies": {
-    "chai": "^4.1.2",
-    "env-cmd": "^9.0.1",
+    "chai": "^4.5.0",
+    "env-cmd": "^9.0.3",
     "eslint": "^4.8.0",
     "eslint-config-airbnb-base": "^12.0.2",
     "eslint-plugin-import": "^2.7.0",
-    "mocha": "^4.0.1",
-    "nodemon": "^1.12.1",
-    "supertest": "^3.0.0"
+    "mocha": "^4.1.0",
+    "nodemon": "^1.19.4",
+    "supertest": "^3.4.2"
   }
 }
