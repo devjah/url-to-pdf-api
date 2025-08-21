@@ -3,6 +3,7 @@ const enableDestroy = require('server-destroy');
 const BPromise = require('bluebird');
 const logger = require('./util/logger')(__filename);
 const config = require('./config');
+const { shutdownPool } = require('./core/browser-pool');
 
 BPromise.config({
   warnings: config.NODE_ENV !== 'production',
@@ -29,9 +30,16 @@ function closeServer(signal) {
 process.on('SIGTERM', closeServer.bind(this, 'SIGTERM'));
 process.on('SIGINT', closeServer.bind(this, 'SIGINT(Ctrl-C)'));
 
-server.on('close', () => {
+server.on('close', async () => {
   logger.info('Server closed');
   process.emit('cleanup');
+
+  logger.info('Shutting down browser pool..');
+  try {
+    await shutdownPool();
+  } catch (err) {
+    logger.error('Error shutting down browser pool:', err);
+  }
 
   logger.info('Giving 100ms time to cleanup..');
   // Give a small time frame to clean up
