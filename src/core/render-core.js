@@ -2,6 +2,7 @@ const puppeteer = require('puppeteer');
 const _ = require('lodash');
 const config = require('../config');
 const logger = require('../util/logger')(__filename);
+const { getPool } = require('./browser-pool');
 
 
 async function createBrowser(opts) {
@@ -26,7 +27,7 @@ async function createBrowser(opts) {
     '--no-first-run',
     '--no-zygote',
     '--single-process',
-    '--disable-gpu'
+    '--disable-gpu',
   ];
   return puppeteer.launch(browserOpts);
 }
@@ -79,15 +80,29 @@ async function render(_opts = {}) {
 
   logOpts(opts);
 
-  const browser = await createBrowser(opts);
-  const page = await browser.newPage();
+  const usePool = config.USE_BROWSER_POOL !== false;
+  let browser;
+  let page;
+  let pageWrapper;
+
+  if (usePool) {
+    const pool = getPool();
+    pageWrapper = await pool.acquire();
+    ({ page } = pageWrapper);
+    ({ browser } = pageWrapper.browser);
+  } else {
+    browser = await createBrowser(opts);
+    page = await browser.newPage();
+  }
 
   page.on('console', (...args) => logger.info('PAGE LOG:', ...args));
 
   page.on('error', (err) => {
     logger.error(`Error event emitted: ${err}`);
     logger.error(err.stack);
-    browser.close();
+    if (!usePool) {
+      browser.close();
+    }
   });
 
 
@@ -205,9 +220,14 @@ async function render(_opts = {}) {
     logger.error(err.stack);
     throw err;
   } finally {
-    logger.info('Closing browser..');
-    if (!config.DEBUG_MODE) {
-      await browser.close();
+    if (usePool && pageWrapper) {
+      logger.info('Releasing page back to pool..');
+      await pageWrapper.release();
+    } else {
+      logger.info('Closing browser..');
+      if (!config.DEBUG_MODE) {
+        await browser.close();
+      }
     }
   }
 

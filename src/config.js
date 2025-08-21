@@ -11,6 +11,7 @@ const config = {
   CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
   BROWSER_WS_ENDPOINT: process.env.BROWSER_WS_ENDPOINT,
   BROWSER_EXECUTABLE_PATH: process.env.BROWSER_EXECUTABLE_PATH,
+  USE_BROWSER_POOL: process.env.USE_BROWSER_POOL !== 'false',
   API_TOKENS: [],
   ALLOW_URLS: [],
 };
