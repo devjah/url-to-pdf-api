@@ -1,0 +1,49 @@
+# Exclude test files
+test/
+*.test.js
+*.spec.js
+
+# Exclude documentation
+*.md
+LICENSE
+CONTRIBUTING.md
+docs/
+
+# Exclude development files
+.eslintrc*
+.prettierrc*
+.editorconfig
+.env.example
+nodemon.json
+
+# Exclude git files
+.git/
+.gitignore
+
+# Exclude CI/CD files
+.travis.yml
+.gitlab-ci.yml
+.github/
+
+# Exclude npm cache
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Exclude editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Exclude MacOS files
+.DS_Store
+
+# Exclude pdf-parse unnecessary versions and test files
+node_modules/pdf-parse/test/
+node_modules/pdf-parse/lib/pdf.js/v1.10.88/
+node_modules/pdf-parse/lib/pdf.js/v1.9.426/
+node_modules/pdf-parse/lib/pdf.js/v2.0.550/
+
+# Keep only the latest version (v1.10.100)

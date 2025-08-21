@@ -9,8 +9,7 @@
   "scripts": {
     "start": "env-cmd nodemon --watch ./src -e js src/index.js",
     "test": "mocha --timeout 10000 && npm run lint",
-    "lint": "eslint .",
-    "heroku-postbuild": "npx puppeteer browsers install chrome"
+    "lint": "eslint ."
   },
   "repository": {
     "type": "git",

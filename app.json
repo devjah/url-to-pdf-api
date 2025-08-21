@@ -18,6 +18,14 @@
     "API_TOKENS": {
       "description": "Comma-separated list of accepted keys in x-api-key header.",
       "required": false
+    },
+    "PUPPETEER_SKIP_DOWNLOAD": {
+      "description": "Skip downloading Chrome with Puppeteer",
+      "value": "true"
+    },
+    "BROWSER_EXECUTABLE_PATH": {
+      "description": "Path to Chrome executable from buildpack",
+      "value": "/app/.apt/usr/bin/google-chrome"
     }
   },
   "success_url": "/api/render?url=https://github.com/alvarcarto/url-to-pdf-api/blob/master/README.md",
