@@ -5,6 +5,7 @@ const render = require('./http/render-http');
 const config = require('./config');
 const logger = require('./util/logger')(__filename);
 const { renderQuerySchema, renderBodySchema, sharedQuerySchema } = require('./util/validation');
+const { getPool } = require('./core/browser-pool');
 
 function createRouter() {
   const router = express.Router();
@@ -50,6 +51,12 @@ function createRouter() {
   router.post('/api/render', validate(postRenderSchema), render.postRender);
 
   router.get('/healthcheck', (req, res) => res.status(200).send('OK'));
+
+  router.get('/api/pool-stats', (req, res) => {
+    const pool = getPool();
+    const stats = pool.getStats();
+    res.json(stats);
+  });
 
   return router;
 }
