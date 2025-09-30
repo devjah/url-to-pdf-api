@@ -45,3 +45,13 @@ server.on('close', async () => {
   // Give a small time frame to clean up
   setTimeout(process.exit, 100);
 });
+
+// Auto-restart server periodically to prevent memory leaks
+if (config.AUTO_RESTART_INTERVAL_MINUTES > 0) {
+  const restartInterval = config.AUTO_RESTART_INTERVAL_MINUTES * 60 * 1000;
+  logger.info(`Auto-restart scheduled every ${config.AUTO_RESTART_INTERVAL_MINUTES} minutes`);
+  setInterval(() => {
+    logger.info('Scheduled restart initiated');
+    closeServer('SCHEDULED_RESTART');
+  }, restartInterval);
+}
