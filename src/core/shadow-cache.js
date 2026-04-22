@@ -1,8 +1,20 @@
 const crypto = require('crypto');
+const { URL } = require('url');
 const config = require('../config');
 const logger = require('../util/logger')(__filename);
 
 const IGNORED_KEYS = new Set(['attachmentName']);
+
+function stripQueryParams(rawUrl) {
+  if (!rawUrl || config.SHADOW_CACHE_STRIP_QUERY_PARAMS.length === 0) return rawUrl;
+  try {
+    const u = new URL(rawUrl);
+    config.SHADOW_CACHE_STRIP_QUERY_PARAMS.forEach(p => u.searchParams.delete(p));
+    return u.toString();
+  } catch (e) {
+    return rawUrl;
+  }
+}
 
 const state = {
   entries: new Map(),
@@ -28,7 +40,8 @@ function canonicalize(value) {
 }
 
 function hashOpts(opts) {
-  const canonical = JSON.stringify(canonicalize(opts));
+  const normalized = Object.assign({}, opts, { url: stripQueryParams(opts.url) });
+  const canonical = JSON.stringify(canonicalize(normalized));
   return crypto.createHash('sha256').update(canonical).digest('hex');
 }
 
