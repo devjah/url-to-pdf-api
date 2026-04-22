@@ -99,17 +99,8 @@ function logSnapshot() {
   logger.info(`[shadow-cache] snapshot: ${JSON.stringify(stats)}`);
 }
 
-function reset() {
-  state.entries.clear();
-  state.totalRequests = 0;
-  state.hits = 0;
-  state.evicted = 0;
-}
-
 module.exports = {
   record,
   getStats,
   logSnapshot,
-  reset,
-  hashOpts,
 };
