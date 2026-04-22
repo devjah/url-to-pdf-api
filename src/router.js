@@ -6,6 +6,7 @@ const config = require('./config');
 const logger = require('./util/logger')(__filename);
 const { renderQuerySchema, renderBodySchema, sharedQuerySchema } = require('./util/validation');
 const { getPool } = require('./core/browser-pool');
+const shadowCache = require('./core/shadow-cache');
 
 function createRouter() {
   const router = express.Router();
@@ -56,6 +57,10 @@ function createRouter() {
     const pool = getPool();
     const stats = pool.getStats();
     res.json(stats);
+  });
+
+  router.get('/api/cache-shadow/stats', (req, res) => {
+    res.json(shadowCache.getStats());
   });
 
   return router;

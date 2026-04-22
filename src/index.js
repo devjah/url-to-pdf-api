@@ -4,6 +4,7 @@ const BPromise = require('bluebird');
 const logger = require('./util/logger')(__filename);
 const config = require('./config');
 const { shutdownPool } = require('./core/browser-pool');
+const shadowCache = require('./core/shadow-cache');
 
 BPromise.config({
   warnings: config.NODE_ENV !== 'production',
@@ -33,6 +34,8 @@ process.on('SIGINT', closeServer.bind(this, 'SIGINT(Ctrl-C)'));
 server.on('close', async () => {
   logger.info('Server closed');
   process.emit('cleanup');
+
+  shadowCache.logSnapshot();
 
   logger.info('Shutting down browser pool..');
   try {
