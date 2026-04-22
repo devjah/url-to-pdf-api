@@ -303,6 +303,25 @@ Health check endpoint used for monitoring if the service is still up and running
 curl -XGET http://localhost:9000/healthcheck
 ```
 
+### GET /api/cache-shadow/stats (experimental)
+
+Observability-only "shadow cache" that measures what a real response cache *would* do — without storing any rendered bytes. Each render's inputs are hashed (SHA-256 over a canonicalized, sorted-key JSON of the render options; `attachmentName` is excluded). Hit/miss counts, unique-key cardinality, and the byte size each would have cached are tracked in an in-memory LRU. No PDF/image bytes are retained.
+
+Use this to decide whether a real cache is worth building: look at `hitRate`, `uniqueKeys`, and `estimatedLiveBytes` after a day or two of real traffic.
+
+```bash
+curl -XGET http://localhost:9000/api/cache-shadow/stats
+```
+
+Env vars:
+
+| Name                        | Default | Description                                         |
+| --------------------------- | ------- | --------------------------------------------------- |
+| `SHADOW_CACHE_ENABLED`      | `false` | Set to `true` to enable observation.                |
+| `SHADOW_CACHE_MAX_ENTRIES`  | `10000` | LRU cap on metadata entries (not PDF bytes).        |
+
+A final snapshot is also logged to stdout on SIGTERM, so Heroku captures the numbers in `heroku logs` before a dyno restart.
+
 ## Development
 
 To get this thing running, you have two options: run it in Heroku, or locally.

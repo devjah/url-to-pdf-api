@@ -3,6 +3,7 @@ const _ = require('lodash');
 const normalizeUrl = require('normalize-url');
 const ex = require('../util/express');
 const renderCore = require('../core/render-core');
+const shadowCache = require('../core/shadow-cache');
 const logger = require('../util/logger')(__filename);
 const config = require('../config');
 
@@ -27,11 +28,13 @@ const getRender = ex.createRoute((req, res) => {
   assertOptionsAllowed(opts);
   return renderCore.render(opts)
     .then((data) => {
+      const buf = Buffer.from(data);
+      shadowCache.record(opts, buf.length);
       if (opts.attachmentName) {
         res.attachment(opts.attachmentName);
       }
       res.set('content-type', getMimeType(opts));
-      res.send(Buffer.from(data));
+      res.send(buf);
     });
 });
 
@@ -62,11 +65,13 @@ const postRender = ex.createRoute((req, res) => {
   assertOptionsAllowed(opts);
   return renderCore.render(opts)
     .then((data) => {
+      const buf = Buffer.from(data);
+      shadowCache.record(opts, buf.length);
       if (opts.attachmentName) {
         res.attachment(opts.attachmentName);
       }
       res.set('content-type', getMimeType(opts));
-      res.send(Buffer.from(data));
+      res.send(buf);
     });
 });
 

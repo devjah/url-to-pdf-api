@@ -13,9 +13,17 @@ const config = {
   BROWSER_EXECUTABLE_PATH: process.env.BROWSER_EXECUTABLE_PATH,
   USE_BROWSER_POOL: process.env.USE_BROWSER_POOL !== 'false',
   AUTO_RESTART_INTERVAL_MINUTES: Number(process.env.AUTO_RESTART_INTERVAL_MINUTES) || 0,
+  SHADOW_CACHE_ENABLED: process.env.SHADOW_CACHE_ENABLED === 'true',
+  SHADOW_CACHE_MAX_ENTRIES: Number(process.env.SHADOW_CACHE_MAX_ENTRIES) || 10000,
+  SHADOW_CACHE_STRIP_QUERY_PARAMS: [],
   API_TOKENS: [],
   ALLOW_URLS: [],
 };
+
+if (process.env.SHADOW_CACHE_STRIP_QUERY_PARAMS) {
+  config.SHADOW_CACHE_STRIP_QUERY_PARAMS = process.env.SHADOW_CACHE_STRIP_QUERY_PARAMS
+    .split(',').map(s => s.trim()).filter(Boolean);
+}
 
 if (process.env.API_TOKENS) {
   config.API_TOKENS = process.env.API_TOKENS.split(',');
