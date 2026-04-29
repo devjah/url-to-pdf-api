@@ -6,7 +6,7 @@ const config = require('./config');
 const logger = require('./util/logger')(__filename);
 const { renderQuerySchema, renderBodySchema, sharedQuerySchema } = require('./util/validation');
 const { getPool } = require('./core/browser-pool');
-const shadowCache = require('./core/shadow-cache');
+const cache = require('./core/cache');
 
 function createRouter() {
   const router = express.Router();
@@ -59,9 +59,12 @@ function createRouter() {
     res.json(stats);
   });
 
-  router.get('/api/cache-shadow/stats', (req, res) => {
-    res.json(shadowCache.getStats());
-  });
+  const cacheStatsHandler = (req, res) => {
+    res.json(cache.getStats());
+  };
+  router.get('/api/cache/stats', cacheStatsHandler);
+  // Legacy alias — kept so existing /api/cache-shadow/stats consumers keep working.
+  router.get('/api/cache-shadow/stats', cacheStatsHandler);
 
   return router;
 }

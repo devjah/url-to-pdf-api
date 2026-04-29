@@ -303,22 +303,32 @@ Health check endpoint used for monitoring if the service is still up and running
 curl -XGET http://localhost:9000/healthcheck
 ```
 
-### GET /api/cache-shadow/stats (experimental)
+### GET /api/cache/stats
 
-Observability-only "shadow cache" that measures what a real response cache *would* do — without storing any rendered bytes. Each render's inputs are hashed (SHA-256 over a canonicalized, sorted-key JSON of the render options; `attachmentName` is excluded). Hit/miss counts, unique-key cardinality, and the byte size each would have cached are tracked in an in-memory LRU. No PDF/image bytes are retained.
+In-memory response cache that serves identical render requests directly from RAM. Each render's inputs are hashed (SHA-256 over a canonicalized, sorted-key JSON of the options; `attachmentName` and `nocache` are excluded), and the rendered Buffer is stored under that key.
 
-Use this to decide whether a real cache is worth building: look at `hitRate`, `uniqueKeys`, and `estimatedLiveBytes` after a day or two of real traffic.
+Behavior:
+
+- **Bytes-capped, no LRU eviction.** Total stored payload is capped at `CACHE_MAX_BYTES` (default 64 MiB — sized to leave headroom on a 512 MiB Heroku dyno). When a fresh render would push the cache past the cap, the entry is **not** stored — the request still succeeds (rendered fresh) but is served uncached. This keeps hot items pinned and avoids cache thrash.
+- **Idle TTL.** Entries are dropped after `CACHE_TTL_SECONDS` of no access. The TTL resets on every cache hit. A periodic sweep runs every `CACHE_SWEEP_INTERVAL_SECONDS`; expired entries are also dropped lazily on read.
+- **Bypass.** Pass `nocache=true` (query param or JSON body field) to skip both the read and the write — useful for forcing a fresh render.
+- **`X-Cache` response header** is set to `HIT`, `MISS`, or `BYPASS` on every render response.
 
 ```bash
-curl -XGET http://localhost:9000/api/cache-shadow/stats
+curl -XGET http://localhost:9000/api/cache/stats
 ```
+
+The legacy URL `GET /api/cache-shadow/stats` is also kept as an alias and returns the same JSON, so existing observability tooling pointed at the shadow-cache endpoint keeps working.
 
 Env vars:
 
-| Name                        | Default | Description                                         |
-| --------------------------- | ------- | --------------------------------------------------- |
-| `SHADOW_CACHE_ENABLED`      | `false` | Set to `true` to enable observation.                |
-| `SHADOW_CACHE_MAX_ENTRIES`  | `10000` | LRU cap on metadata entries (not PDF bytes).        |
+| Name                            | Default     | Description                                                       |
+| ------------------------------- | ----------- | ----------------------------------------------------------------- |
+| `CACHE_ENABLED`                 | `false`     | Set to `true` to enable the cache.                                |
+| `CACHE_MAX_BYTES`               | `67108864`  | Hard cap on total stored payload bytes (default 64 MiB).          |
+| `CACHE_TTL_SECONDS`             | `43200`     | Idle TTL — entries are dropped after this many seconds of no use. |
+| `CACHE_SWEEP_INTERVAL_SECONDS`  | `60`        | How often the background TTL sweep runs.                          |
+| `CACHE_STRIP_QUERY_PARAMS`      | _(empty)_   | Comma-separated URL query params stripped before hashing the key. |
 
 A final snapshot is also logged to stdout on SIGTERM, so Heroku captures the numbers in `heroku logs` before a dyno restart.
 

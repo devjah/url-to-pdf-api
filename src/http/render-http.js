@@ -3,7 +3,7 @@ const _ = require('lodash');
 const normalizeUrl = require('normalize-url');
 const ex = require('../util/express');
 const renderCore = require('../core/render-core');
-const shadowCache = require('../core/shadow-cache');
+const cache = require('../core/cache');
 const logger = require('../util/logger')(__filename);
 const config = require('../config');
 
@@ -26,16 +26,7 @@ const getRender = ex.createRoute((req, res) => {
   const opts = getOptsFromQuery(req.query);
 
   assertOptionsAllowed(opts);
-  return renderCore.render(opts)
-    .then((data) => {
-      const buf = Buffer.from(data);
-      shadowCache.record(opts, buf.length);
-      if (opts.attachmentName) {
-        res.attachment(opts.attachmentName);
-      }
-      res.set('content-type', getMimeType(opts));
-      res.send(buf);
-    });
+  return serveFromCacheOrRender(opts, res);
 });
 
 const postRender = ex.createRoute((req, res) => {
@@ -63,17 +54,39 @@ const postRender = ex.createRoute((req, res) => {
   }
 
   assertOptionsAllowed(opts);
+  return serveFromCacheOrRender(opts, res);
+});
+
+function sendBuffer(opts, res, buf) {
+  if (opts.attachmentName) {
+    res.attachment(opts.attachmentName);
+  }
+  res.set('content-type', getMimeType(opts));
+  res.send(buf);
+}
+
+function serveFromCacheOrRender(opts, res) {
+  if (opts.nocache) {
+    res.set('x-cache', 'BYPASS');
+  } else {
+    const cached = cache.get(opts);
+    if (cached) {
+      res.set('x-cache', 'HIT');
+      sendBuffer(opts, res, cached);
+      return null;
+    }
+    res.set('x-cache', 'MISS');
+  }
+
   return renderCore.render(opts)
     .then((data) => {
       const buf = Buffer.from(data);
-      shadowCache.record(opts, buf.length);
-      if (opts.attachmentName) {
-        res.attachment(opts.attachmentName);
+      if (!opts.nocache) {
+        cache.set(opts, buf);
       }
-      res.set('content-type', getMimeType(opts));
-      res.send(buf);
+      sendBuffer(opts, res, buf);
     });
-});
+}
 
 function isHostMatch(host1, host2) {
   return {
@@ -143,6 +156,7 @@ function getOptsFromQuery(query) {
   const opts = {
     url: query.url,
     attachmentName: query.attachmentName,
+    nocache: query.nocache,
     scrollPage: query.scrollPage,
     emulateScreenMedia: query.emulateScreenMedia,
     enableGPU: query.enableGPU,
