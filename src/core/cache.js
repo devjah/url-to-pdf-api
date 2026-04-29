@@ -83,9 +83,8 @@ function get(opts) {
   }
 }
 
-// Concurrent misses for the same key both render and both call set; the second
-// call short-circuits because the key already exists. Request coalescing is out
-// of scope for this iteration.
+// Concurrent misses for the same key both render; the second set short-circuits
+// because the key already exists.
 function set(opts, buffer) {
   if (!config.CACHE_ENABLED) return false;
   try {
@@ -101,7 +100,6 @@ function set(opts, buffer) {
       buffer,
       byteSize,
       hits: 0,
-      createdAt: now,
       lastAccess: now,
     });
     state.totalBytes += byteSize;
@@ -175,7 +173,6 @@ function logSnapshot() {
 module.exports = {
   get,
   set,
-  sweep,
   startSweep,
   stop,
   getStats,
