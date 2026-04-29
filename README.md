@@ -315,6 +315,7 @@ Behavior:
 - **Idle TTL.** Entries are dropped after `CACHE_TTL_SECONDS` of no access. The TTL resets on every cache hit. A periodic sweep runs every `CACHE_SWEEP_INTERVAL_SECONDS`; expired entries are also dropped lazily on read.
 - **Bypass.** Pass `nocache=true` (query param or JSON body field) to skip both the read and the write — useful for forcing a fresh render.
 - **`X-Cache` response header** indicates which path the request took: `HIT`, `MISS`, `UNVERSIONED` (no `v` was provided), `BYPASS` (`nocache=true`), or `DISABLED` (`CACHE_ENABLED=false`).
+- **Stats include diagnostic counters.** `unversioned` and `bypassed` count requests that didn't engage the cache, so a `totalRequests: 0` reading after live traffic is unambiguous: either the service isn't being hit at all, or the caller is consistently sending `nocache`/no-`v`.
 
 ```bash
 curl -XGET http://localhost:9000/api/cache/stats

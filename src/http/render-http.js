@@ -70,10 +70,12 @@ function serveFromCacheOrRender(opts, res) {
 
   if (opts.nocache) {
     res.set('x-cache', 'BYPASS');
+    cache.recordBypass();
   } else if (!config.CACHE_ENABLED) {
     res.set('x-cache', 'DISABLED');
   } else if (!opts.v) {
     res.set('x-cache', 'UNVERSIONED');
+    cache.recordUnversioned();
   } else {
     const cached = cache.get(opts);
     if (cached) {

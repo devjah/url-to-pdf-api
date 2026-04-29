@@ -9,6 +9,8 @@ const state = {
   totalBytes: 0,
   totalRequests: 0,
   hits: 0,
+  unversioned: 0,
+  bypassed: 0,
   refusedFull: 0,
   expired: 0,
   sweepTimer: null,
@@ -97,6 +99,16 @@ function set(opts, buffer) {
   }
 }
 
+function recordUnversioned() {
+  if (!config.CACHE_ENABLED) return;
+  state.unversioned += 1;
+}
+
+function recordBypass() {
+  if (!config.CACHE_ENABLED) return;
+  state.bypassed += 1;
+}
+
 function sweep() {
   if (!config.CACHE_ENABLED) return;
   const now = Date.now();
@@ -141,6 +153,8 @@ function getStats() {
     hits: state.hits,
     misses: state.totalRequests - state.hits,
     hitRate: Number(hitRate.toFixed(4)),
+    unversioned: state.unversioned,
+    bypassed: state.bypassed,
     liveEntries: state.entries.size,
     totalBytes: state.totalBytes,
     maxBytes: config.CACHE_MAX_BYTES,
@@ -160,6 +174,8 @@ function logSnapshot() {
 module.exports = {
   get,
   set,
+  recordUnversioned,
+  recordBypass,
   startSweep,
   stop,
   getStats,
