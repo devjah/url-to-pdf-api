@@ -312,7 +312,7 @@ Behavior:
 - **Bytes-capped, no LRU eviction.** Total stored payload is capped at `CACHE_MAX_BYTES` (default 64 MiB — sized to leave headroom on a 512 MiB Heroku dyno). When a fresh render would push the cache past the cap, the entry is **not** stored — the request still succeeds (rendered fresh) but is served uncached. This keeps hot items pinned and avoids cache thrash.
 - **Idle TTL.** Entries are dropped after `CACHE_TTL_SECONDS` of no access. The TTL resets on every cache hit. A periodic sweep runs every `CACHE_SWEEP_INTERVAL_SECONDS`; expired entries are also dropped lazily on read.
 - **Bypass.** Pass `nocache=true` (query param or JSON body field) to skip both the read and the write — useful for forcing a fresh render.
-- **`X-Cache` response header** is set to `HIT`, `MISS`, or `BYPASS` on every render response.
+- **`X-Cache` response header** is set to `HIT`, `MISS`, `BYPASS` (when `nocache=true`), or `DISABLED` (when `CACHE_ENABLED=false`) on every render response.
 
 ```bash
 curl -XGET http://localhost:9000/api/cache/stats

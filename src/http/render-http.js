@@ -68,6 +68,8 @@ function sendBuffer(opts, res, buf) {
 function serveFromCacheOrRender(opts, res) {
   if (opts.nocache) {
     res.set('x-cache', 'BYPASS');
+  } else if (!config.CACHE_ENABLED) {
+    res.set('x-cache', 'DISABLED');
   } else {
     const cached = cache.get(opts);
     if (cached) {
@@ -81,7 +83,7 @@ function serveFromCacheOrRender(opts, res) {
   return renderCore.render(opts)
     .then((data) => {
       const buf = Buffer.from(data);
-      if (!opts.nocache) {
+      if (!opts.nocache && config.CACHE_ENABLED) {
         cache.set(opts, buf);
       }
       sendBuffer(opts, res, buf);
