@@ -66,10 +66,14 @@ function sendBuffer(opts, res, buf) {
 }
 
 function serveFromCacheOrRender(opts, res) {
+  const cacheable = config.CACHE_ENABLED && !opts.nocache && Boolean(opts.v);
+
   if (opts.nocache) {
     res.set('x-cache', 'BYPASS');
   } else if (!config.CACHE_ENABLED) {
     res.set('x-cache', 'DISABLED');
+  } else if (!opts.v) {
+    res.set('x-cache', 'UNVERSIONED');
   } else {
     const cached = cache.get(opts);
     if (cached) {
@@ -83,7 +87,7 @@ function serveFromCacheOrRender(opts, res) {
   return renderCore.render(opts)
     .then((data) => {
       const buf = Buffer.from(data);
-      if (!opts.nocache && config.CACHE_ENABLED) {
+      if (cacheable) {
         cache.set(opts, buf);
       }
       sendBuffer(opts, res, buf);
@@ -159,6 +163,7 @@ function getOptsFromQuery(query) {
     url: query.url,
     attachmentName: query.attachmentName,
     nocache: query.nocache,
+    v: query.v,
     scrollPage: query.scrollPage,
     emulateScreenMedia: query.emulateScreenMedia,
     enableGPU: query.enableGPU,

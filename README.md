@@ -305,14 +305,16 @@ curl -XGET http://localhost:9000/healthcheck
 
 ### GET /api/cache/stats
 
-In-memory response cache that serves identical render requests directly from RAM. Each render's inputs are hashed (SHA-256 over a canonicalized, sorted-key JSON of the options; `attachmentName` and `nocache` are excluded), and the rendered Buffer is stored under that key.
+In-memory response cache that serves identical render requests directly from RAM. **Caching is opt-in per request:** the caller must pass a version token via the `v` query param (or `v` body field for POST). Without `v`, the request is rendered fresh and not stored. The cache key is a SHA-256 hash of the canonicalized render options including `v`, so a new `v` value produces a fresh entry; supplying the same `v` again hits the previous render. (`attachmentName` and `nocache` are excluded from the key.)
+
+The intended pattern is for upstream callers to pass `v=<updated_at>` (or any monotonic version of the source content). When the source changes, the version changes, and the next request bypasses the stale entry naturally.
 
 Behavior:
 
 - **Bytes-capped, no LRU eviction.** Total stored payload is capped at `CACHE_MAX_BYTES` (default 64 MiB — sized to leave headroom on a 512 MiB Heroku dyno). When a fresh render would push the cache past the cap, the entry is **not** stored — the request still succeeds (rendered fresh) but is served uncached. This keeps hot items pinned and avoids cache thrash.
 - **Idle TTL.** Entries are dropped after `CACHE_TTL_SECONDS` of no access. The TTL resets on every cache hit. A periodic sweep runs every `CACHE_SWEEP_INTERVAL_SECONDS`; expired entries are also dropped lazily on read.
 - **Bypass.** Pass `nocache=true` (query param or JSON body field) to skip both the read and the write — useful for forcing a fresh render.
-- **`X-Cache` response header** is set to `HIT`, `MISS`, `BYPASS` (when `nocache=true`), or `DISABLED` (when `CACHE_ENABLED=false`) on every render response.
+- **`X-Cache` response header** indicates which path the request took: `HIT`, `MISS`, `UNVERSIONED` (no `v` was provided), `BYPASS` (`nocache=true`), or `DISABLED` (`CACHE_ENABLED=false`).
 
 ```bash
 curl -XGET http://localhost:9000/api/cache/stats
@@ -328,7 +330,6 @@ Env vars:
 | `CACHE_MAX_BYTES`               | `67108864`  | Hard cap on total stored payload bytes (default 64 MiB).          |
 | `CACHE_TTL_SECONDS`             | `43200`     | Idle TTL — entries are dropped after this many seconds of no use. |
 | `CACHE_SWEEP_INTERVAL_SECONDS`  | `60`        | How often the background TTL sweep runs.                          |
-| `CACHE_STRIP_QUERY_PARAMS`      | _(empty)_   | Comma-separated URL query params stripped before hashing the key. |
 
 A final snapshot is also logged to stdout on SIGTERM, so Heroku captures the numbers in `heroku logs` before a dyno restart.
 
