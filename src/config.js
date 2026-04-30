@@ -15,7 +15,7 @@ const config = {
   AUTO_RESTART_INTERVAL_MINUTES: Number(process.env.AUTO_RESTART_INTERVAL_MINUTES) || 0,
   CACHE_ENABLED: process.env.CACHE_ENABLED === 'true',
   CACHE_MAX_BYTES: Number(process.env.CACHE_MAX_BYTES) || 64 * 1024 * 1024,
-  CACHE_TTL_SECONDS: Number(process.env.CACHE_TTL_SECONDS) || 12 * 60 * 60,
+  CACHE_TTL_SECONDS: Number(process.env.CACHE_TTL_SECONDS) || 8 * 60 * 60,
   CACHE_SWEEP_INTERVAL_SECONDS: Number(process.env.CACHE_SWEEP_INTERVAL_SECONDS) || 60,
   API_TOKENS: [],
   ALLOW_URLS: [],

@@ -76,6 +76,10 @@ function serveFromCacheOrRender(opts, res) {
   } else if (!opts.v) {
     res.set('x-cache', 'UNVERSIONED');
     cache.recordUnversioned();
+  } else if (opts.refresh) {
+    cache.invalidate(opts);
+    res.set('x-cache', 'REFRESH');
+    cache.recordRefresh();
   } else {
     const cached = cache.get(opts);
     if (cached) {
@@ -165,6 +169,7 @@ function getOptsFromQuery(query) {
     url: query.url,
     attachmentName: query.attachmentName,
     nocache: query.nocache,
+    refresh: query.refresh,
     v: query.v,
     scrollPage: query.scrollPage,
     emulateScreenMedia: query.emulateScreenMedia,

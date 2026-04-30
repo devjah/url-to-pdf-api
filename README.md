@@ -313,9 +313,10 @@ Behavior:
 
 - **Bytes-capped, no LRU eviction.** Total stored payload is capped at `CACHE_MAX_BYTES` (default 64 MiB — sized to leave headroom on a 512 MiB Heroku dyno). When a fresh render would push the cache past the cap, the entry is **not** stored — the request still succeeds (rendered fresh) but is served uncached. This keeps hot items pinned and avoids cache thrash.
 - **Idle TTL.** Entries are dropped after `CACHE_TTL_SECONDS` of no access. The TTL resets on every cache hit. A periodic sweep runs every `CACHE_SWEEP_INTERVAL_SECONDS`; expired entries are also dropped lazily on read.
-- **Bypass.** Pass `nocache=true` (query param or JSON body field) to skip both the read and the write — useful for forcing a fresh render.
-- **`X-Cache` response header** indicates which path the request took: `HIT`, `MISS`, `UNVERSIONED` (no `v` was provided), `BYPASS` (`nocache=true`), or `DISABLED` (`CACHE_ENABLED=false`).
-- **Stats include diagnostic counters.** `unversioned` and `bypassed` count requests that didn't engage the cache, so a `totalRequests: 0` reading after live traffic is unambiguous: either the service isn't being hit at all, or the caller is consistently sending `nocache`/no-`v`.
+- **Bypass.** Pass `nocache=true` (query param or JSON body field) to skip both the read and the write — useful for forcing a fresh render that should not be remembered.
+- **Refresh.** Pass `refresh=true` (with a `v`) to force a fresh render *and* replace the cached entry. The next request (without `refresh`) hits the new version. Useful as a one-shot "rebuild this PDF" button — first call is fresh, second and third calls are served from cache.
+- **`X-Cache` response header** indicates which path the request took: `HIT`, `MISS`, `REFRESH` (`refresh=true`), `UNVERSIONED` (no `v`), `BYPASS` (`nocache=true`), or `DISABLED` (`CACHE_ENABLED=false`).
+- **Stats include diagnostic counters.** `unversioned`, `bypassed`, and `refreshed` count requests on each non-standard path, so a `totalRequests: 0` reading after live traffic is unambiguous about which path callers are taking.
 
 ```bash
 curl -XGET http://localhost:9000/api/cache/stats
@@ -329,7 +330,7 @@ Env vars:
 | ------------------------------- | ----------- | ----------------------------------------------------------------- |
 | `CACHE_ENABLED`                 | `false`     | Set to `true` to enable the cache.                                |
 | `CACHE_MAX_BYTES`               | `67108864`  | Hard cap on total stored payload bytes (default 64 MiB).          |
-| `CACHE_TTL_SECONDS`             | `43200`     | Idle TTL — entries are dropped after this many seconds of no use. |
+| `CACHE_TTL_SECONDS`             | `28800`     | Idle TTL — entries are dropped after this many seconds of no use (default 8 h). |
 | `CACHE_SWEEP_INTERVAL_SECONDS`  | `60`        | How often the background TTL sweep runs.                          |
 
 A final snapshot is also logged to stdout on SIGTERM, so Heroku captures the numbers in `heroku logs` before a dyno restart.

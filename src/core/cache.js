@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const logger = require('../util/logger')(__filename);
 
-const IGNORED_KEYS = new Set(['attachmentName', 'nocache']);
+const IGNORED_KEYS = new Set(['attachmentName', 'nocache', 'refresh']);
 
 const state = {
   entries: new Map(),
@@ -11,6 +11,7 @@ const state = {
   hits: 0,
   unversioned: 0,
   bypassed: 0,
+  refreshed: 0,
   refusedFull: 0,
   expired: 0,
   sweepTimer: null,
@@ -109,6 +110,25 @@ function recordBypass() {
   state.bypassed += 1;
 }
 
+function recordRefresh() {
+  if (!config.CACHE_ENABLED) return;
+  state.refreshed += 1;
+}
+
+function invalidate(opts) {
+  if (!config.CACHE_ENABLED) return false;
+  try {
+    const key = hashOpts(opts);
+    const entry = state.entries.get(key);
+    if (!entry) return false;
+    dropEntry(key, entry);
+    return true;
+  } catch (err) {
+    logger.warn(`Cache invalidate failed: ${err.message}`);
+    return false;
+  }
+}
+
 function sweep() {
   if (!config.CACHE_ENABLED) return;
   const now = Date.now();
@@ -155,6 +175,7 @@ function getStats() {
     hitRate: Number(hitRate.toFixed(4)),
     unversioned: state.unversioned,
     bypassed: state.bypassed,
+    refreshed: state.refreshed,
     liveEntries: state.entries.size,
     totalBytes: state.totalBytes,
     maxBytes: config.CACHE_MAX_BYTES,
@@ -174,8 +195,10 @@ function logSnapshot() {
 module.exports = {
   get,
   set,
+  invalidate,
   recordUnversioned,
   recordBypass,
+  recordRefresh,
   startSweep,
   stop,
   getStats,
