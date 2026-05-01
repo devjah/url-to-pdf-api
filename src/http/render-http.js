@@ -70,29 +70,41 @@ function sendBuffer(opts, res, buf) {
   res.send(buf);
 }
 
+function logCache(status, opts) {
+  const target = opts.url || '<html>';
+  const v = opts.v ? ` v=${opts.v}` : '';
+  logger.debug(`[cache] ${status} ${target}${v}`);
+}
+
 function serveFromCacheOrRender(opts, res) {
   const cacheable = config.CACHE_ENABLED && !opts.nocache && Boolean(opts.v);
 
   if (opts.nocache) {
     res.set('x-cache', 'BYPASS');
     cache.recordBypass();
+    logCache('BYPASS', opts);
   } else if (!config.CACHE_ENABLED) {
     res.set('x-cache', 'DISABLED');
+    logCache('DISABLED', opts);
   } else if (!opts.v) {
     res.set('x-cache', 'UNVERSIONED');
     cache.recordUnversioned();
+    logCache('UNVERSIONED', opts);
   } else if (opts.refresh) {
     cache.invalidate(opts);
     res.set('x-cache', 'REFRESH');
     cache.recordRefresh();
+    logCache('REFRESH', opts);
   } else {
     const cached = cache.get(opts);
     if (cached) {
       res.set('x-cache', 'HIT');
+      logCache('HIT', opts);
       sendBuffer(opts, res, cached);
       return null;
     }
     res.set('x-cache', 'MISS');
+    logCache('MISS', opts);
   }
 
   return renderCore.render(opts)

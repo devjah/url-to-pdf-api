@@ -17,9 +17,17 @@ const config = {
   CACHE_MAX_BYTES: Number(process.env.CACHE_MAX_BYTES) || 64 * 1024 * 1024,
   CACHE_TTL_SECONDS: Number(process.env.CACHE_TTL_SECONDS) || 8 * 60 * 60,
   CACHE_SWEEP_INTERVAL_SECONDS: Number(process.env.CACHE_SWEEP_INTERVAL_SECONDS) || 60,
+  CACHE_IGNORED_QUERY_PARAMS: ['api_token'],
   API_TOKENS: [],
   ALLOW_URLS: [],
 };
+
+if (process.env.CACHE_IGNORED_QUERY_PARAMS) {
+  config.CACHE_IGNORED_QUERY_PARAMS = process.env.CACHE_IGNORED_QUERY_PARAMS
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
 
 if (process.env.API_TOKENS) {
   config.API_TOKENS = process.env.API_TOKENS.split(',');

@@ -1,8 +1,21 @@
 const crypto = require('crypto');
+const { URL } = require('url');
 const config = require('../config');
 const logger = require('../util/logger')(__filename);
 
 const IGNORED_KEYS = new Set(['attachmentName', 'nocache', 'refresh']);
+
+function stripIgnoredQueryParams(rawUrl) {
+  const ignored = config.CACHE_IGNORED_QUERY_PARAMS;
+  if (!ignored || ignored.length === 0) return rawUrl;
+  try {
+    const parsed = new URL(rawUrl);
+    ignored.forEach(name => parsed.searchParams.delete(name));
+    return parsed.toString();
+  } catch (err) {
+    return rawUrl;
+  }
+}
 
 const state = {
   entries: new Map(),
@@ -34,7 +47,10 @@ function canonicalize(value) {
 }
 
 function hashOpts(opts) {
-  const canonical = JSON.stringify(canonicalize(opts));
+  const normalized = opts && typeof opts.url === 'string'
+    ? Object.assign({}, opts, { url: stripIgnoredQueryParams(opts.url) })
+    : opts;
+  const canonical = JSON.stringify(canonicalize(normalized));
   return crypto.createHash('sha256').update(canonical).digest('hex');
 }
 
