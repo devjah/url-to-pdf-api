@@ -48,6 +48,11 @@ const postRender = ex.createRoute((req, res) => {
         type: 'png',
       },
     }, req.body);
+    // Cache controls are accepted on the query string too, symmetric with GET.
+    // Body wins if both are present.
+    ['v', 'nocache', 'refresh'].forEach((k) => {
+      if (opts[k] === undefined && req.query[k] !== undefined) opts[k] = req.query[k];
+    });
   } else {
     opts = getOptsFromQuery(req.query);
     opts.html = req.body;
