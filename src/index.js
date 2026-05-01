@@ -4,7 +4,7 @@ const BPromise = require('bluebird');
 const logger = require('./util/logger')(__filename);
 const config = require('./config');
 const { shutdownPool } = require('./core/browser-pool');
-const shadowCache = require('./core/shadow-cache');
+const cache = require('./core/cache');
 
 BPromise.config({
   warnings: config.NODE_ENV !== 'production',
@@ -21,6 +21,8 @@ const server = app.listen(config.PORT, () => {
 });
 enableDestroy(server);
 
+cache.startSweep();
+
 function closeServer(signal) {
   logger.info(`${signal} received`);
   logger.info('Closing http.Server ..');
@@ -35,7 +37,8 @@ server.on('close', async () => {
   logger.info('Server closed');
   process.emit('cleanup');
 
-  shadowCache.logSnapshot();
+  cache.stop();
+  cache.logSnapshot();
 
   logger.info('Shutting down browser pool..');
   try {

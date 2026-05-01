@@ -3,7 +3,7 @@ const _ = require('lodash');
 const normalizeUrl = require('normalize-url');
 const ex = require('../util/express');
 const renderCore = require('../core/render-core');
-const shadowCache = require('../core/shadow-cache');
+const cache = require('../core/cache');
 const logger = require('../util/logger')(__filename);
 const config = require('../config');
 
@@ -26,16 +26,7 @@ const getRender = ex.createRoute((req, res) => {
   const opts = getOptsFromQuery(req.query);
 
   assertOptionsAllowed(opts);
-  return renderCore.render(opts)
-    .then((data) => {
-      const buf = Buffer.from(data);
-      shadowCache.record(opts, buf.length);
-      if (opts.attachmentName) {
-        res.attachment(opts.attachmentName);
-      }
-      res.set('content-type', getMimeType(opts));
-      res.send(buf);
-    });
+  return serveFromCacheOrRender(opts, res);
 });
 
 const postRender = ex.createRoute((req, res) => {
@@ -57,23 +48,62 @@ const postRender = ex.createRoute((req, res) => {
         type: 'png',
       },
     }, req.body);
+    // Cache controls are accepted on the query string too, symmetric with GET.
+    // Body wins if both are present.
+    ['v', 'nocache', 'refresh'].forEach((k) => {
+      if (opts[k] === undefined && req.query[k] !== undefined) opts[k] = req.query[k];
+    });
   } else {
     opts = getOptsFromQuery(req.query);
     opts.html = req.body;
   }
 
   assertOptionsAllowed(opts);
+  return serveFromCacheOrRender(opts, res);
+});
+
+function sendBuffer(opts, res, buf) {
+  if (opts.attachmentName) {
+    res.attachment(opts.attachmentName);
+  }
+  res.set('content-type', getMimeType(opts));
+  res.send(buf);
+}
+
+function serveFromCacheOrRender(opts, res) {
+  const cacheable = config.CACHE_ENABLED && !opts.nocache && Boolean(opts.v);
+
+  if (opts.nocache) {
+    res.set('x-cache', 'BYPASS');
+    cache.recordBypass();
+  } else if (!config.CACHE_ENABLED) {
+    res.set('x-cache', 'DISABLED');
+  } else if (!opts.v) {
+    res.set('x-cache', 'UNVERSIONED');
+    cache.recordUnversioned();
+  } else if (opts.refresh) {
+    cache.invalidate(opts);
+    res.set('x-cache', 'REFRESH');
+    cache.recordRefresh();
+  } else {
+    const cached = cache.get(opts);
+    if (cached) {
+      res.set('x-cache', 'HIT');
+      sendBuffer(opts, res, cached);
+      return null;
+    }
+    res.set('x-cache', 'MISS');
+  }
+
   return renderCore.render(opts)
     .then((data) => {
       const buf = Buffer.from(data);
-      shadowCache.record(opts, buf.length);
-      if (opts.attachmentName) {
-        res.attachment(opts.attachmentName);
+      if (cacheable) {
+        cache.set(opts, buf);
       }
-      res.set('content-type', getMimeType(opts));
-      res.send(buf);
+      sendBuffer(opts, res, buf);
     });
-});
+}
 
 function isHostMatch(host1, host2) {
   return {
@@ -143,6 +173,9 @@ function getOptsFromQuery(query) {
   const opts = {
     url: query.url,
     attachmentName: query.attachmentName,
+    nocache: query.nocache,
+    refresh: query.refresh,
+    v: query.v,
     scrollPage: query.scrollPage,
     emulateScreenMedia: query.emulateScreenMedia,
     enableGPU: query.enableGPU,

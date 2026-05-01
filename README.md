@@ -303,22 +303,35 @@ Health check endpoint used for monitoring if the service is still up and running
 curl -XGET http://localhost:9000/healthcheck
 ```
 
-### GET /api/cache-shadow/stats (experimental)
+### GET /api/cache/stats
 
-Observability-only "shadow cache" that measures what a real response cache *would* do — without storing any rendered bytes. Each render's inputs are hashed (SHA-256 over a canonicalized, sorted-key JSON of the render options; `attachmentName` is excluded). Hit/miss counts, unique-key cardinality, and the byte size each would have cached are tracked in an in-memory LRU. No PDF/image bytes are retained.
+In-memory response cache that serves identical render requests directly from RAM. **Caching is opt-in per request:** the caller must pass a version token via the `v` query param (or `v` body field for POST). Without `v`, the request is rendered fresh and not stored. The cache key is a SHA-256 hash of the canonicalized render options including `v`, so a new `v` value produces a fresh entry; supplying the same `v` again hits the previous render. (`attachmentName` and `nocache` are excluded from the key.)
 
-Use this to decide whether a real cache is worth building: look at `hitRate`, `uniqueKeys`, and `estimatedLiveBytes` after a day or two of real traffic.
+The intended pattern is for upstream callers to pass `v=<updated_at>` (or any monotonic version of the source content). When the source changes, the version changes, and the next request bypasses the stale entry naturally.
+
+Behavior:
+
+- **Bytes-capped, no LRU eviction.** Total stored payload is capped at `CACHE_MAX_BYTES` (default 64 MiB — sized to leave headroom on a 512 MiB Heroku dyno). When a fresh render would push the cache past the cap, the entry is **not** stored — the request still succeeds (rendered fresh) but is served uncached. This keeps hot items pinned and avoids cache thrash.
+- **Idle TTL.** Entries are dropped after `CACHE_TTL_SECONDS` of no access. The TTL resets on every cache hit. A periodic sweep runs every `CACHE_SWEEP_INTERVAL_SECONDS`; expired entries are also dropped lazily on read.
+- **Bypass.** Pass `nocache=true` (query param or JSON body field) to skip both the read and the write — useful for forcing a fresh render that should not be remembered.
+- **Refresh.** Pass `refresh=true` (with a `v`) to force a fresh render *and* replace the cached entry. The next request (without `refresh`) hits the new version. Useful as a one-shot "rebuild this PDF" button — first call is fresh, second and third calls are served from cache.
+- **`X-Cache` response header** indicates which path the request took: `HIT`, `MISS`, `REFRESH` (`refresh=true`), `UNVERSIONED` (no `v`), `BYPASS` (`nocache=true`), or `DISABLED` (`CACHE_ENABLED=false`).
+- **Stats include diagnostic counters.** `unversioned`, `bypassed`, and `refreshed` count requests on each non-standard path, so a `totalRequests: 0` reading after live traffic is unambiguous about which path callers are taking.
 
 ```bash
-curl -XGET http://localhost:9000/api/cache-shadow/stats
+curl -XGET http://localhost:9000/api/cache/stats
 ```
+
+The legacy URL `GET /api/cache-shadow/stats` is also kept as an alias and returns the same JSON, so existing observability tooling pointed at the shadow-cache endpoint keeps working.
 
 Env vars:
 
-| Name                        | Default | Description                                         |
-| --------------------------- | ------- | --------------------------------------------------- |
-| `SHADOW_CACHE_ENABLED`      | `false` | Set to `true` to enable observation.                |
-| `SHADOW_CACHE_MAX_ENTRIES`  | `10000` | LRU cap on metadata entries (not PDF bytes).        |
+| Name                            | Default     | Description                                                       |
+| ------------------------------- | ----------- | ----------------------------------------------------------------- |
+| `CACHE_ENABLED`                 | `false`     | Set to `true` to enable the cache.                                |
+| `CACHE_MAX_BYTES`               | `67108864`  | Hard cap on total stored payload bytes (default 64 MiB).          |
+| `CACHE_TTL_SECONDS`             | `28800`     | Idle TTL — entries are dropped after this many seconds of no use (default 8 h). |
+| `CACHE_SWEEP_INTERVAL_SECONDS`  | `60`        | How often the background TTL sweep runs.                          |
 
 A final snapshot is also logged to stdout on SIGTERM, so Heroku captures the numbers in `heroku logs` before a dyno restart.
 
