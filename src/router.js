@@ -59,12 +59,9 @@ function createRouter() {
     res.json(stats);
   });
 
-  const cacheStatsHandler = (req, res) => {
+  router.get('/api/cache/stats', (req, res) => {
     res.json(cache.getStats());
-  };
-  router.get('/api/cache/stats', cacheStatsHandler);
-  // Legacy alias — kept so existing /api/cache-shadow/stats consumers keep working.
-  router.get('/api/cache-shadow/stats', cacheStatsHandler);
+  });
 
   return router;
 }

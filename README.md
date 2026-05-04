@@ -322,8 +322,6 @@ Behavior:
 curl -XGET http://localhost:9000/api/cache/stats
 ```
 
-The legacy URL `GET /api/cache-shadow/stats` is also kept as an alias and returns the same JSON, so existing observability tooling pointed at the shadow-cache endpoint keeps working.
-
 Env vars:
 
 | Name                            | Default     | Description                                                       |
