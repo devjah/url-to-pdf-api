@@ -83,7 +83,9 @@ class BrowserPool extends EventEmitter {
           this.stats.activePages -= 1;
           availableBrowser.activePages -= 1;
 
-          if (availableBrowser.shouldRestart) {
+          // A browser marked for restart gets no new pages, so it restarts once
+          // its last in-flight page is done instead of killing the others.
+          if (availableBrowser.shouldRestart && availableBrowser.activePages === 0) {
             await this.restartBrowser(availableBrowser);
           }
 
@@ -111,7 +113,8 @@ class BrowserPool extends EventEmitter {
 
   async getAvailableBrowser() {
     const availableBrowsers = this.browsers.filter(
-      bw => bw.isHealthy && !bw.isRestarting && bw.activePages < this.maxPagesPerBrowser,
+      bw => bw.isHealthy && !bw.isRestarting && !bw.shouldRestart &&
+        bw.activePages < this.maxPagesPerBrowser,
     );
     if (availableBrowsers.length > 0) {
       return availableBrowsers[0];
@@ -195,9 +198,16 @@ class BrowserPool extends EventEmitter {
 
   async createPage(browserWrapper) {
     const { browser } = browserWrapper;
-    const page = await browser.newPage();
-
+    // Count the page before it exists so a drain check can't restart the
+    // browser while this page is still being opened.
     browserWrapper.activePages += 1;
+    let page;
+    try {
+      page = await browser.newPage();
+    } catch (err) {
+      browserWrapper.activePages -= 1;
+      throw err;
+    }
 
     page.setDefaultTimeout(this.pageTimeout);
     page.setDefaultNavigationTimeout(this.pageTimeout);
@@ -269,15 +279,24 @@ class BrowserPool extends EventEmitter {
           await browserWrapper.browser.pages();
           browserWrapper.isHealthy = true;
 
+          // Browsers launched together age out together; drain one at a time
+          // so the pool never loses all of its capacity at once.
+          const anotherDraining = this.browsers.some(
+            bw => bw !== browserWrapper && (bw.shouldRestart || bw.isRestarting),
+          );
           const browserAge = Date.now() - browserWrapper.createdAt;
-          if (browserAge > 3600000) {
+          if (browserAge > 3600000 && !browserWrapper.shouldRestart && !anotherDraining) {
             browserWrapper.shouldRestart = true;
             logger.info('Marking browser for restart due to age');
           }
 
-          if (browserWrapper.errorCount > 10) {
+          if (browserWrapper.errorCount > 10 && !browserWrapper.shouldRestart) {
             browserWrapper.shouldRestart = true;
             logger.info('Marking browser for restart due to error count');
+          }
+
+          if (browserWrapper.shouldRestart && browserWrapper.activePages === 0) {
+            await this.restartBrowser(browserWrapper);
           }
         } catch (err) {
           logger.warn('Health check failed for browser:', err.message);
