@@ -146,8 +146,11 @@ class BrowserPool extends EventEmitter {
 
           // A browser marked for restart gets no new pages, so it restarts once
           // its last in-flight page is done instead of killing the others.
+          // The render that released it doesn't wait for the relaunch.
           if (availableBrowser.shouldRestart && availableBrowser.activePages === 0) {
-            await this.restartBrowser(availableBrowser);
+            this.restartBrowser(availableBrowser).catch((err) => {
+              logger.error('Error restarting drained browser:', err);
+            });
           }
 
           setImmediate(() => this.dispatch());
@@ -312,6 +315,11 @@ class BrowserPool extends EventEmitter {
     if (index > -1) {
       this.browsers.splice(index, 1);
       this.stats.activeBrowsers -= 1;
+    }
+
+    // The restart runs unawaited, so the pool may have shut down meanwhile.
+    if (this.isShuttingDown) {
+      return;
     }
 
     try {

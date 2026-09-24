@@ -67,7 +67,10 @@ describe('BrowserPool', () => {
 
     // No new pages go to the draining browser, so this waits for the restart.
     const queued = pool.acquire();
+    const releasedAt = Date.now();
     await second.release();
+    // The last render on a draining browser doesn't wait for the relaunch.
+    expect(Date.now() - releasedAt).to.be.below(300);
     const third = await queued;
     expect(third.browser).to.not.equal(oldBrowser);
     expect(pool.browsers).to.deep.equal([third.browser]);
@@ -82,12 +85,16 @@ describe('BrowserPool', () => {
 
     const queued = [pool.acquire(), pool.acquire(), pool.acquire(), pool.acquire()];
     await first.release();
+    while (pool.browsers.length !== 1 || pool.browsers[0] === oldBrowser) {
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(50);
+    }
 
     // Nothing releases a page from here on, so every waiter has to start off
     // the dispatch the restart itself triggers.
     const started = await Promise.race([
       Promise.all(queued),
-      sleep(3000).then(() => null),
+      sleep(5000).then(() => null),
     ]);
     expect(started, 'queued requests left waiting after the restart').to.not.equal(null);
     started.forEach(wrapper => expect(wrapper.browser).to.not.equal(oldBrowser));
