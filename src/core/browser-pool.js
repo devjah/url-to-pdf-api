@@ -317,10 +317,12 @@ class BrowserPool extends EventEmitter {
     try {
       await this.createBrowser();
       logger.info('Browser restarted successfully');
-      setImmediate(() => this.dispatch());
     } catch (err) {
       logger.error('Failed to restart browser:', err);
     }
+    // Dispatch even when the launch failed: the queue then launches (or fails)
+    // its own browser instead of stranding its waiters until the next release.
+    setImmediate(() => this.dispatch());
   }
 
   async handleBrowserDisconnect(browserWrapper) {
@@ -333,10 +335,10 @@ class BrowserPool extends EventEmitter {
     if (!this.isShuttingDown) {
       try {
         await this.createBrowser();
-        setImmediate(() => this.dispatch());
       } catch (err) {
         logger.error('Failed to replace disconnected browser:', err);
       }
+      setImmediate(() => this.dispatch());
     }
   }
 
