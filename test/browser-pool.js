@@ -93,6 +93,33 @@ describe('BrowserPool', () => {
     started.forEach(wrapper => expect(wrapper.browser).to.not.equal(oldBrowser));
     await Promise.all(started.map(wrapper => wrapper.release()));
   });
+
+  it('does not relaunch a draining browser that crashed and was already replaced', async () => {
+    pool = new BrowserPool({ maxBrowsers: 1, maxPagesPerBrowser: 5 });
+    const first = await pool.acquire();
+    const oldBrowser = first.browser;
+    oldBrowser.shouldRestart = true;
+
+    let launches = 0;
+    const createBrowser = pool.createBrowser.bind(pool);
+    pool.createBrowser = () => {
+      launches += 1;
+      return createBrowser();
+    };
+
+    oldBrowser.browser.process().kill('SIGKILL');
+    while (pool.browsers.length !== 1 || pool.browsers[0] === oldBrowser) {
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(50);
+    }
+    expect(launches).to.equal(1);
+
+    // The crashed browser's last page going away must not launch a third.
+    await first.release();
+    await sleep(500);
+    expect(launches).to.equal(1);
+    expect(pool.browsers).to.have.length(1);
+  });
 });
 
 describe('Render abort on client disconnect', () => {

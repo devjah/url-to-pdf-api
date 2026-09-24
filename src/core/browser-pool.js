@@ -290,7 +290,10 @@ class BrowserPool extends EventEmitter {
   }
 
   async restartBrowser(browserWrapper) {
-    if (browserWrapper.isRestarting) {
+    // A browser no longer in the pool was already replaced (it crashed and
+    // handleBrowserDisconnect launched its successor), so launching another
+    // would take the pool over maxBrowsers.
+    if (browserWrapper.isRestarting || this.browsers.indexOf(browserWrapper) === -1) {
       return;
     }
 
