@@ -349,20 +349,21 @@ class BrowserPool extends EventEmitter {
           await browserWrapper.browser.pages();
           browserWrapper.isHealthy = true;
 
-          // Browsers launched together age out together; drain one at a time
-          // so the pool never loses all of its capacity at once.
+          // Drain one browser at a time so the pool never refuses pages on
+          // every browser at once. Browsers launched together also age out
+          // together. A browser held back here is marked at a later check.
           const anotherDraining = this.browsers.some(
             bw => bw !== browserWrapper && (bw.shouldRestart || bw.isRestarting),
           );
-          const browserAge = Date.now() - browserWrapper.createdAt;
-          if (browserAge > 3600000 && !browserWrapper.shouldRestart && !anotherDraining) {
-            browserWrapper.shouldRestart = true;
-            logger.info('Marking browser for restart due to age');
-          }
-
-          if (browserWrapper.errorCount > 10 && !browserWrapper.shouldRestart) {
-            browserWrapper.shouldRestart = true;
-            logger.info('Marking browser for restart due to error count');
+          if (!browserWrapper.shouldRestart && !anotherDraining) {
+            const browserAge = Date.now() - browserWrapper.createdAt;
+            if (browserAge > 3600000) {
+              browserWrapper.shouldRestart = true;
+              logger.info('Marking browser for restart due to age');
+            } else if (browserWrapper.errorCount > 10) {
+              browserWrapper.shouldRestart = true;
+              logger.info('Marking browser for restart due to error count');
+            }
           }
 
           if (browserWrapper.shouldRestart && browserWrapper.activePages === 0) {
