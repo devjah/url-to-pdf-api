@@ -74,11 +74,20 @@ class BrowserPool extends EventEmitter {
     });
   }
 
+  // Hands out pages while there is both a waiter and a free slot, so a fresh
+  // browser starts every request it has room for, not just the first.
   async processQueue() {
-    if (this.queue.length === 0 || this.isShuttingDown) {
-      return;
+    let handled = true;
+    while (handled && this.queue.length > 0 && !this.isShuttingDown) {
+      // Each step depends on the slots the previous one took.
+      // eslint-disable-next-line no-await-in-loop
+      handled = await this.dispatchNext();
     }
+  }
 
+  // Settles the next waiter one way or another. Returns false when there is
+  // no free slot (or no waiter left), which ends the dispatch loop.
+  async dispatchNext() {
     let availableBrowser;
     try {
       availableBrowser = await this.getAvailableBrowser();
@@ -87,27 +96,26 @@ class BrowserPool extends EventEmitter {
       // waiting for a trigger that may never arrive.
       logger.error('Failed to launch a browser for a queued request:', err);
       const failed = this.queue.shift();
-      if (failed) {
-        failed.reject(unavailableError(`Could not launch a browser: ${err.message}`));
-        this.stats.failedRequests += 1;
+      if (!failed) {
+        return false;
       }
-      setImmediate(() => this.dispatch());
-      return;
+      failed.reject(unavailableError(`Could not launch a browser: ${err.message}`));
+      this.stats.failedRequests += 1;
+      return true;
     }
     if (!availableBrowser) {
-      return;
+      return false;
     }
 
     const request = this.queue.shift();
     if (!request) {
-      return;
+      return false;
     }
 
     if (Date.now() - request.timestamp > this.pageTimeout) {
       request.reject(unavailableError('Request timeout while waiting in queue'));
       this.stats.failedRequests += 1;
-      this.dispatch();
-      return;
+      return true;
     }
 
     try {
@@ -150,15 +158,12 @@ class BrowserPool extends EventEmitter {
       request.reject(err);
       this.stats.failedRequests += 1;
 
-      if (availableBrowser) {
-        availableBrowser.errorCount += 1;
-        if (availableBrowser.errorCount > this.retryLimit) {
-          await this.restartBrowser(availableBrowser);
-        }
+      availableBrowser.errorCount += 1;
+      if (availableBrowser.errorCount > this.retryLimit) {
+        await this.restartBrowser(availableBrowser);
       }
-
-      setImmediate(() => this.dispatch());
     }
+    return true;
   }
 
   async getAvailableBrowser() {

@@ -66,6 +66,26 @@ describe('BrowserPool', () => {
     expect(pool.browsers).to.deep.equal([third.browser]);
     await third.release();
   });
+
+  it('starts every queued request the restarted browser has room for', async () => {
+    pool = new BrowserPool({ maxBrowsers: 1, maxPagesPerBrowser: 5 });
+    const first = await pool.acquire();
+    const oldBrowser = first.browser;
+    oldBrowser.shouldRestart = true;
+
+    const queued = [pool.acquire(), pool.acquire(), pool.acquire(), pool.acquire()];
+    await first.release();
+
+    // Nothing releases a page from here on, so every waiter has to start off
+    // the dispatch the restart itself triggers.
+    const started = await Promise.race([
+      Promise.all(queued),
+      sleep(3000).then(() => null),
+    ]);
+    expect(started, 'queued requests left waiting after the restart').to.not.equal(null);
+    started.forEach(wrapper => expect(wrapper.browser).to.not.equal(oldBrowser));
+    await Promise.all(started.map(wrapper => wrapper.release()));
+  });
 });
 
 describe('Render abort on client disconnect', () => {
