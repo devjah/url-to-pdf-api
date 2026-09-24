@@ -1,3 +1,4 @@
+/* global AbortController */
 const { URL } = require('url');
 const _ = require('lodash');
 const normalizeUrl = require('normalize-url');
@@ -70,6 +71,19 @@ function sendBuffer(opts, res, buf) {
   res.send(buf);
 }
 
+// Aborts when the connection closes before the response is sent, i.e. the
+// caller disconnected or gave up. req's 'close' also fires once the request
+// body has been read, so it is the response that is watched.
+function abortOnClose(res) {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) {
+      controller.abort();
+    }
+  });
+  return controller.signal;
+}
+
 function logCache(status, opts) {
   const target = opts.url || '<html>';
   const v = opts.v ? ` v=${opts.v}` : '';
@@ -107,7 +121,7 @@ function serveFromCacheOrRender(opts, res) {
     logCache('MISS', opts);
   }
 
-  return renderCore.render(opts)
+  return renderCore.render(opts, { signal: abortOnClose(res) })
     .then((data) => {
       const buf = Buffer.from(data);
       if (cacheable) {

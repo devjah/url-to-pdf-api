@@ -32,9 +32,12 @@ class BrowserPool extends EventEmitter {
     this.startHealthCheck();
   }
 
-  async acquire() {
+  async acquire({ signal } = {}) {
     if (this.isShuttingDown) {
       throw new Error('Browser pool is shutting down');
+    }
+    if (signal && signal.aborted) {
+      throw new Error('Request aborted before acquiring a page');
     }
 
     this.stats.totalRequests += 1;
@@ -48,6 +51,16 @@ class BrowserPool extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       const request = { resolve, reject, timestamp: Date.now() };
+      if (signal) {
+        // A caller that has gone away should not hold a place in the queue.
+        signal.addEventListener('abort', () => {
+          const index = this.queue.indexOf(request);
+          if (index > -1) {
+            this.queue.splice(index, 1);
+            reject(new Error('Request aborted while waiting in queue'));
+          }
+        }, { once: true });
+      }
       this.queue.push(request);
       this.processQueue();
     });
@@ -79,10 +92,16 @@ class BrowserPool extends EventEmitter {
       const page = await this.createPage(availableBrowser);
       this.stats.activePages += 1;
 
+      let released = false;
       const pageWrapper = {
         page,
         browser: availableBrowser,
         release: async () => {
+          if (released) {
+            return;
+          }
+          released = true;
+
           try {
             await page.close();
           } catch (err) {
