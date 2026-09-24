@@ -62,7 +62,15 @@ class BrowserPool extends EventEmitter {
         }, { once: true });
       }
       this.queue.push(request);
-      this.processQueue();
+      this.dispatch();
+    });
+  }
+
+  // processQueue runs fire-and-forget from many places. A rejection there
+  // (a failed Chrome launch) would be unhandled, which exits Node.
+  dispatch() {
+    this.processQueue().catch((err) => {
+      logger.error('Error processing render queue:', err);
     });
   }
 
@@ -71,7 +79,21 @@ class BrowserPool extends EventEmitter {
       return;
     }
 
-    const availableBrowser = await this.getAvailableBrowser();
+    let availableBrowser;
+    try {
+      availableBrowser = await this.getAvailableBrowser();
+    } catch (err) {
+      // No browser is coming for this request, so fail it rather than leave it
+      // waiting for a trigger that may never arrive.
+      logger.error('Failed to launch a browser for a queued request:', err);
+      const failed = this.queue.shift();
+      if (failed) {
+        failed.reject(unavailableError(`Could not launch a browser: ${err.message}`));
+        this.stats.failedRequests += 1;
+      }
+      setImmediate(() => this.dispatch());
+      return;
+    }
     if (!availableBrowser) {
       return;
     }
@@ -84,7 +106,7 @@ class BrowserPool extends EventEmitter {
     if (Date.now() - request.timestamp > this.pageTimeout) {
       request.reject(unavailableError('Request timeout while waiting in queue'));
       this.stats.failedRequests += 1;
-      this.processQueue();
+      this.dispatch();
       return;
     }
 
@@ -117,7 +139,7 @@ class BrowserPool extends EventEmitter {
             await this.restartBrowser(availableBrowser);
           }
 
-          setImmediate(() => this.processQueue());
+          setImmediate(() => this.dispatch());
         },
       };
 
@@ -135,7 +157,7 @@ class BrowserPool extends EventEmitter {
         }
       }
 
-      setImmediate(() => this.processQueue());
+      setImmediate(() => this.dispatch());
     }
   }
 
@@ -281,7 +303,7 @@ class BrowserPool extends EventEmitter {
     try {
       await this.createBrowser();
       logger.info('Browser restarted successfully');
-      setImmediate(() => this.processQueue());
+      setImmediate(() => this.dispatch());
     } catch (err) {
       logger.error('Failed to restart browser:', err);
     }
@@ -297,7 +319,7 @@ class BrowserPool extends EventEmitter {
     if (!this.isShuttingDown) {
       try {
         await this.createBrowser();
-        setImmediate(() => this.processQueue());
+        setImmediate(() => this.dispatch());
       } catch (err) {
         logger.error('Failed to replace disconnected browser:', err);
       }
