@@ -121,6 +121,15 @@ class BrowserPool extends EventEmitter {
       return true;
     }
 
+    // createPage claims its slot before it awaits, so the loop can move on to
+    // the next waiter while this page opens instead of opening them in turn.
+    this.startRequest(availableBrowser, request).catch((err) => {
+      logger.error('Error starting queued request:', err);
+    });
+    return true;
+  }
+
+  async startRequest(availableBrowser, request) {
     try {
       const page = await this.createPage(availableBrowser);
       this.stats.activePages += 1;
@@ -168,8 +177,9 @@ class BrowserPool extends EventEmitter {
       if (availableBrowser.errorCount > this.retryLimit) {
         await this.restartBrowser(availableBrowser);
       }
+      // The failed page freed its slot.
+      setImmediate(() => this.dispatch());
     }
-    return true;
   }
 
   async getAvailableBrowser() {
