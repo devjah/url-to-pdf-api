@@ -175,7 +175,16 @@ class BrowserPool extends EventEmitter {
 
       availableBrowser.errorCount += 1;
       if (availableBrowser.errorCount > this.retryLimit) {
-        await this.restartBrowser(availableBrowser);
+        if (availableBrowser.activePages === 0) {
+          // Every page open is failing and nothing is rendering on it, so the
+          // browser is effectively dead: restart it now, drain or no drain.
+          await this.restartBrowser(availableBrowser);
+        } else if (!availableBrowser.shouldRestart && !this.isAnotherDraining(availableBrowser)) {
+          // Other renders are still running on it, so drain it like the age
+          // restart does: no new pages, restart after its last page is done.
+          availableBrowser.shouldRestart = true;
+          logger.info('Marking browser for restart after repeated page open failures');
+        }
       }
       // The failed page freed its slot.
       setImmediate(() => this.dispatch());
@@ -343,6 +352,12 @@ class BrowserPool extends EventEmitter {
     setImmediate(() => this.dispatch());
   }
 
+  isAnotherDraining(browserWrapper) {
+    return this.browsers.some(
+      bw => bw !== browserWrapper && (bw.shouldRestart || bw.isRestarting),
+    );
+  }
+
   async handleBrowserDisconnect(browserWrapper) {
     const index = this.browsers.indexOf(browserWrapper);
     if (index > -1) {
@@ -370,10 +385,7 @@ class BrowserPool extends EventEmitter {
           // Drain one browser at a time so the pool never refuses pages on
           // every browser at once. Browsers launched together also age out
           // together. A browser held back here is marked at a later check.
-          const anotherDraining = this.browsers.some(
-            bw => bw !== browserWrapper && (bw.shouldRestart || bw.isRestarting),
-          );
-          if (!browserWrapper.shouldRestart && !anotherDraining) {
+          if (!browserWrapper.shouldRestart && !this.isAnotherDraining(browserWrapper)) {
             const browserAge = Date.now() - browserWrapper.createdAt;
             if (browserAge > 3600000) {
               browserWrapper.shouldRestart = true;

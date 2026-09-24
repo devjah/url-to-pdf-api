@@ -82,6 +82,28 @@ describe('BrowserPool', function browserPoolSuite() {
     await third.release();
   });
 
+  it('drains a browser whose page opens keep failing instead of killing its renders', async () => {
+    pool = new BrowserPool({ maxBrowsers: 1, maxPagesPerBrowser: 5, retryLimit: 1 });
+    const first = await pool.acquire();
+    const oldBrowser = first.browser;
+    const inFlight = first.page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('done'), 500)));
+
+    oldBrowser.browser.newPage = () => Promise.reject(new Error('newPage failed'));
+    await pool.acquire().catch(e => e);
+    const err = await pool.acquire().catch(e => e);
+    expect(err.message).to.equal('newPage failed');
+
+    expect(await inFlight).to.equal('done');
+    expect(oldBrowser.shouldRestart).to.equal(true);
+    expect(pool.browsers).to.deep.equal([oldBrowser]);
+
+    const queued = pool.acquire();
+    await first.release();
+    const next = await queued;
+    expect(next.browser).to.not.equal(oldBrowser);
+    await next.release();
+  });
+
   it('starts every queued request the restarted browser has room for', async () => {
     pool = new BrowserPool({ maxBrowsers: 1, maxPagesPerBrowser: 5 });
     const first = await pool.acquire();
