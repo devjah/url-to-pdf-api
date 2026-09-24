@@ -46,6 +46,13 @@ describe('BrowserPool', () => {
     await first.release();
   });
 
+  it('launches no more than maxBrowsers when requests arrive together', async () => {
+    pool = new BrowserPool({ maxBrowsers: 1, maxPagesPerBrowser: 5 });
+    const pages = await Promise.all([pool.acquire(), pool.acquire(), pool.acquire()]);
+    expect(pool.browsers).to.have.length(1);
+    await Promise.all(pages.map(wrapper => wrapper.release()));
+  });
+
   it('drains a browser marked for restart instead of killing its other pages', async () => {
     pool = new BrowserPool({ maxBrowsers: 1, maxPagesPerBrowser: 5 });
     const first = await pool.acquire();

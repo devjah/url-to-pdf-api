@@ -15,6 +15,9 @@ class BrowserPool extends EventEmitter {
     this.maxQueueLength = options.maxQueueLength || config.MAX_QUEUE_LENGTH;
 
     this.browsers = [];
+    // Launches still in progress count toward maxBrowsers; they only join
+    // this.browsers once Chrome is up.
+    this.launchingBrowsers = 0;
     this.queue = [];
     this.isShuttingDown = false;
     this.healthCheckInterval = null;
@@ -175,7 +178,7 @@ class BrowserPool extends EventEmitter {
       return availableBrowsers[0];
     }
 
-    if (this.browsers.length < this.maxBrowsers) {
+    if (this.browsers.length + this.launchingBrowsers < this.maxBrowsers) {
       const newBrowser = await this.createBrowser();
       return newBrowser;
     }
@@ -222,6 +225,7 @@ class BrowserPool extends EventEmitter {
       browserOpts.executablePath = config.BROWSER_EXECUTABLE_PATH;
     }
 
+    this.launchingBrowsers += 1;
     try {
       const browser = await puppeteer.launch(browserOpts);
       const browserWrapper = {
@@ -252,6 +256,8 @@ class BrowserPool extends EventEmitter {
     } catch (err) {
       logger.error('Failed to create browser:', err);
       throw err;
+    } finally {
+      this.launchingBrowsers -= 1;
     }
   }
 
