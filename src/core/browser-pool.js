@@ -180,6 +180,10 @@ class BrowserPool extends EventEmitter {
       };
 
       browser.on('disconnected', () => {
+        // restartBrowser launches its own replacement
+        if (browserWrapper.isRestarting) {
+          return;
+        }
         logger.warn('Browser disconnected');
         browserWrapper.isHealthy = false;
         this.handleBrowserDisconnect(browserWrapper);

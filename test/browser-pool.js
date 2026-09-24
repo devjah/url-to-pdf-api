@@ -27,6 +27,7 @@ describe('BrowserPool', () => {
     await second.release();
     const third = await queued;
     expect(third.browser).to.not.equal(oldBrowser);
+    expect(pool.browsers).to.deep.equal([third.browser]);
     await third.release();
   });
 });
