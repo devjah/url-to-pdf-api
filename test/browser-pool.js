@@ -6,6 +6,7 @@ const http = require('http');
 const request = require('supertest');
 const { BrowserPool, getPool, shutdownPool } = require('../src/core/browser-pool');
 const createApp = require('../src/app');
+const config = require('../src/config');
 
 const { expect } = chai;
 
@@ -13,7 +14,11 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-describe('BrowserPool', () => {
+// Each test launches Chrome at least once, which can outlast mocha's 2s default.
+const CHROME_TIMEOUT = 30000;
+
+describe('BrowserPool', function browserPoolSuite() {
+  this.timeout(CHROME_TIMEOUT);
   let pool;
 
   afterEach(() => pool.shutdown());
@@ -129,10 +134,16 @@ describe('BrowserPool', () => {
   });
 });
 
-describe('Render abort on client disconnect', () => {
+describe('Render abort on client disconnect', function renderAbortSuite() {
+  this.timeout(CHROME_TIMEOUT);
   let hangingServer;
+  let allowHttp;
 
   before(async () => {
+    // The hanging server is plain http on localhost, which the app refuses
+    // unless ALLOW_HTTP is on.
+    allowHttp = config.ALLOW_HTTP;
+    config.ALLOW_HTTP = true;
     // Accepts the page request and never answers, so navigation hangs.
     hangingServer = http.createServer(() => {}).listen(0);
     // Launch Chrome up front so the render is past the queue when the caller gives up.
@@ -141,6 +152,7 @@ describe('Render abort on client disconnect', () => {
   });
 
   after(async () => {
+    config.ALLOW_HTTP = allowHttp;
     hangingServer.close();
     await shutdownPool();
   });
