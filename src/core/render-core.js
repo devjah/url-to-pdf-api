@@ -46,7 +46,7 @@ async function getFullPageHeight(page) {
   return height;
 }
 
-async function render(_opts = {}) {
+async function render(_opts = {}, { signal } = {}) {
   const opts = _.merge({
     cookies: [],
     scrollPage: false,
@@ -87,12 +87,26 @@ async function render(_opts = {}) {
 
   if (usePool) {
     const pool = getPool();
-    pageWrapper = await pool.acquire();
+    pageWrapper = await pool.acquire({ signal });
     ({ page } = pageWrapper);
     ({ browser } = pageWrapper.browser);
   } else {
     browser = await createBrowser(opts);
     page = await browser.newPage();
+  }
+
+  // Closing the page frees its pool slot now and makes the pending page call
+  // reject, instead of rendering for a caller that is no longer there.
+  const onAbort = () => {
+    logger.warn('Client disconnected, aborting render..');
+    if (usePool) {
+      pageWrapper.release();
+    } else {
+      page.close().catch(err => logger.warn('Error closing page:', err.message));
+    }
+  };
+  if (signal) {
+    signal.addEventListener('abort', onAbort, { once: true });
   }
 
   page.on('console', (...args) => logger.info('PAGE LOG:', ...args));
@@ -126,6 +140,10 @@ async function render(_opts = {}) {
 
   let data;
   try {
+    if (signal && signal.aborted) {
+      throw new Error('Client disconnected before render started');
+    }
+
     logger.info('Set browser viewport..');
     await page.setViewport(opts.viewport);
     if (opts.emulateScreenMedia) {
@@ -220,6 +238,10 @@ async function render(_opts = {}) {
     logger.error(err.stack);
     throw err;
   } finally {
+    if (signal) {
+      signal.removeEventListener('abort', onAbort);
+    }
+
     if (usePool && pageWrapper) {
       logger.info('Releasing page back to pool..');
       await pageWrapper.release();

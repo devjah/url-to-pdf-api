@@ -12,8 +12,12 @@ class BrowserPool extends EventEmitter {
     this.browserTimeout = options.browserTimeout || 30000;
     this.pageTimeout = options.pageTimeout || 30000;
     this.retryLimit = options.retryLimit || 3;
+    this.maxQueueLength = options.maxQueueLength || config.MAX_QUEUE_LENGTH;
 
     this.browsers = [];
+    // Launches still in progress count toward maxBrowsers; they only join
+    // this.browsers once Chrome is up.
+    this.launchingBrowsers = 0;
     this.queue = [];
     this.isShuttingDown = false;
     this.healthCheckInterval = null;
@@ -22,6 +26,7 @@ class BrowserPool extends EventEmitter {
       totalRequests: 0,
       successfulRequests: 0,
       failedRequests: 0,
+      rejectedRequests: 0,
       queuedRequests: 0,
       activeBrowsers: 0,
       activePages: 0,
@@ -30,50 +35,115 @@ class BrowserPool extends EventEmitter {
     this.startHealthCheck();
   }
 
-  async acquire() {
+  async acquire({ signal } = {}) {
     if (this.isShuttingDown) {
       throw new Error('Browser pool is shutting down');
+    }
+    if (signal && signal.aborted) {
+      throw new Error('Request aborted before acquiring a page');
     }
 
     this.stats.totalRequests += 1;
 
+    // A request behind a full queue would outlast the caller's own timeout,
+    // so answer 503 at once instead of piling up more waiters.
+    if (this.queue.length >= this.maxQueueLength) {
+      this.stats.rejectedRequests += 1;
+      throw unavailableError('Render queue is full');
+    }
+
     return new Promise((resolve, reject) => {
       const request = { resolve, reject, timestamp: Date.now() };
+      if (signal) {
+        // A caller that has gone away should not hold a place in the queue.
+        signal.addEventListener('abort', () => {
+          const index = this.queue.indexOf(request);
+          if (index > -1) {
+            this.queue.splice(index, 1);
+            reject(new Error('Request aborted while waiting in queue'));
+          }
+        }, { once: true });
+      }
       this.queue.push(request);
-      this.processQueue();
+      this.dispatch();
     });
   }
 
-  async processQueue() {
-    if (this.queue.length === 0 || this.isShuttingDown) {
-      return;
-    }
+  // processQueue runs fire-and-forget from many places. A rejection there
+  // (a failed Chrome launch) would be unhandled, which exits Node.
+  dispatch() {
+    this.processQueue().catch((err) => {
+      logger.error('Error processing render queue:', err);
+    });
+  }
 
-    const availableBrowser = await this.getAvailableBrowser();
+  // Hands out pages while there is both a waiter and a free slot, so a fresh
+  // browser starts every request it has room for, not just the first.
+  async processQueue() {
+    let handled = true;
+    while (handled && this.queue.length > 0 && !this.isShuttingDown) {
+      // Each step depends on the slots the previous one took.
+      // eslint-disable-next-line no-await-in-loop
+      handled = await this.dispatchNext();
+    }
+  }
+
+  // Settles the next waiter one way or another. Returns false when there is
+  // no free slot (or no waiter left), which ends the dispatch loop.
+  async dispatchNext() {
+    let availableBrowser;
+    try {
+      availableBrowser = await this.getAvailableBrowser();
+    } catch (err) {
+      // No browser is coming for this request, so fail it rather than leave it
+      // waiting for a trigger that may never arrive.
+      logger.error('Failed to launch a browser for a queued request:', err);
+      const failed = this.queue.shift();
+      if (!failed) {
+        return false;
+      }
+      failed.reject(unavailableError(`Could not launch a browser: ${err.message}`));
+      this.stats.failedRequests += 1;
+      return true;
+    }
     if (!availableBrowser) {
-      return;
+      return false;
     }
 
     const request = this.queue.shift();
     if (!request) {
-      return;
+      return false;
     }
 
     if (Date.now() - request.timestamp > this.pageTimeout) {
-      request.reject(new Error('Request timeout while waiting in queue'));
+      request.reject(unavailableError('Request timeout while waiting in queue'));
       this.stats.failedRequests += 1;
-      this.processQueue();
-      return;
+      return true;
     }
 
+    // createPage claims its slot before it awaits, so the loop can move on to
+    // the next waiter while this page opens instead of opening them in turn.
+    this.startRequest(availableBrowser, request).catch((err) => {
+      logger.error('Error starting queued request:', err);
+    });
+    return true;
+  }
+
+  async startRequest(availableBrowser, request) {
     try {
       const page = await this.createPage(availableBrowser);
       this.stats.activePages += 1;
 
+      let released = false;
       const pageWrapper = {
         page,
         browser: availableBrowser,
         release: async () => {
+          if (released) {
+            return;
+          }
+          released = true;
+
           try {
             await page.close();
           } catch (err) {
@@ -83,11 +153,16 @@ class BrowserPool extends EventEmitter {
           this.stats.activePages -= 1;
           availableBrowser.activePages -= 1;
 
-          if (availableBrowser.shouldRestart) {
-            await this.restartBrowser(availableBrowser);
+          // A browser marked for restart gets no new pages, so it restarts once
+          // its last in-flight page is done instead of killing the others.
+          // The render that released it doesn't wait for the relaunch.
+          if (availableBrowser.shouldRestart && availableBrowser.activePages === 0) {
+            this.restartBrowser(availableBrowser).catch((err) => {
+              logger.error('Error restarting drained browser:', err);
+            });
           }
 
-          setImmediate(() => this.processQueue());
+          setImmediate(() => this.dispatch());
         },
       };
 
@@ -98,26 +173,34 @@ class BrowserPool extends EventEmitter {
       request.reject(err);
       this.stats.failedRequests += 1;
 
-      if (availableBrowser) {
-        availableBrowser.errorCount += 1;
-        if (availableBrowser.errorCount > this.retryLimit) {
+      availableBrowser.errorCount += 1;
+      if (availableBrowser.errorCount > this.retryLimit) {
+        if (availableBrowser.activePages === 0) {
+          // Every page open is failing and nothing is rendering on it, so the
+          // browser is effectively dead: restart it now, drain or no drain.
           await this.restartBrowser(availableBrowser);
+        } else if (!availableBrowser.shouldRestart && !this.isAnotherDraining(availableBrowser)) {
+          // Other renders are still running on it, so drain it like the age
+          // restart does: no new pages, restart after its last page is done.
+          availableBrowser.shouldRestart = true;
+          logger.info('Marking browser for restart after repeated page open failures');
         }
       }
-
-      setImmediate(() => this.processQueue());
+      // The failed page freed its slot.
+      setImmediate(() => this.dispatch());
     }
   }
 
   async getAvailableBrowser() {
     const availableBrowsers = this.browsers.filter(
-      bw => bw.isHealthy && !bw.isRestarting && bw.activePages < this.maxPagesPerBrowser,
+      bw => bw.isHealthy && !bw.isRestarting && !bw.shouldRestart &&
+        bw.activePages < this.maxPagesPerBrowser,
     );
     if (availableBrowsers.length > 0) {
       return availableBrowsers[0];
     }
 
-    if (this.browsers.length < this.maxBrowsers) {
+    if (this.browsers.length + this.launchingBrowsers < this.maxBrowsers) {
       const newBrowser = await this.createBrowser();
       return newBrowser;
     }
@@ -164,6 +247,7 @@ class BrowserPool extends EventEmitter {
       browserOpts.executablePath = config.BROWSER_EXECUTABLE_PATH;
     }
 
+    this.launchingBrowsers += 1;
     try {
       const browser = await puppeteer.launch(browserOpts);
       const browserWrapper = {
@@ -177,6 +261,10 @@ class BrowserPool extends EventEmitter {
       };
 
       browser.on('disconnected', () => {
+        // restartBrowser launches its own replacement
+        if (browserWrapper.isRestarting) {
+          return;
+        }
         logger.warn('Browser disconnected');
         browserWrapper.isHealthy = false;
         this.handleBrowserDisconnect(browserWrapper);
@@ -190,14 +278,23 @@ class BrowserPool extends EventEmitter {
     } catch (err) {
       logger.error('Failed to create browser:', err);
       throw err;
+    } finally {
+      this.launchingBrowsers -= 1;
     }
   }
 
   async createPage(browserWrapper) {
     const { browser } = browserWrapper;
-    const page = await browser.newPage();
-
+    // Count the page before it exists so a drain check can't restart the
+    // browser while this page is still being opened.
     browserWrapper.activePages += 1;
+    let page;
+    try {
+      page = await browser.newPage();
+    } catch (err) {
+      browserWrapper.activePages -= 1;
+      throw err;
+    }
 
     page.setDefaultTimeout(this.pageTimeout);
     page.setDefaultNavigationTimeout(this.pageTimeout);
@@ -215,7 +312,10 @@ class BrowserPool extends EventEmitter {
   }
 
   async restartBrowser(browserWrapper) {
-    if (browserWrapper.isRestarting) {
+    // A browser no longer in the pool was already replaced (it crashed and
+    // handleBrowserDisconnect launched its successor), so launching another
+    // would take the pool over maxBrowsers.
+    if (browserWrapper.isRestarting || this.browsers.indexOf(browserWrapper) === -1) {
       return;
     }
 
@@ -236,13 +336,26 @@ class BrowserPool extends EventEmitter {
       this.stats.activeBrowsers -= 1;
     }
 
+    // The restart runs unawaited, so the pool may have shut down meanwhile.
+    if (this.isShuttingDown) {
+      return;
+    }
+
     try {
       await this.createBrowser();
       logger.info('Browser restarted successfully');
-      setImmediate(() => this.processQueue());
     } catch (err) {
       logger.error('Failed to restart browser:', err);
     }
+    // Dispatch even when the launch failed: the queue then launches (or fails)
+    // its own browser instead of stranding its waiters until the next release.
+    setImmediate(() => this.dispatch());
+  }
+
+  isAnotherDraining(browserWrapper) {
+    return this.browsers.some(
+      bw => bw !== browserWrapper && (bw.shouldRestart || bw.isRestarting),
+    );
   }
 
   async handleBrowserDisconnect(browserWrapper) {
@@ -255,10 +368,10 @@ class BrowserPool extends EventEmitter {
     if (!this.isShuttingDown) {
       try {
         await this.createBrowser();
-        setImmediate(() => this.processQueue());
       } catch (err) {
         logger.error('Failed to replace disconnected browser:', err);
       }
+      setImmediate(() => this.dispatch());
     }
   }
 
@@ -269,15 +382,22 @@ class BrowserPool extends EventEmitter {
           await browserWrapper.browser.pages();
           browserWrapper.isHealthy = true;
 
-          const browserAge = Date.now() - browserWrapper.createdAt;
-          if (browserAge > 3600000) {
-            browserWrapper.shouldRestart = true;
-            logger.info('Marking browser for restart due to age');
+          // Drain one browser at a time so the pool never refuses pages on
+          // every browser at once. Browsers launched together also age out
+          // together. A browser held back here is marked at a later check.
+          if (!browserWrapper.shouldRestart && !this.isAnotherDraining(browserWrapper)) {
+            const browserAge = Date.now() - browserWrapper.createdAt;
+            if (browserAge > 3600000) {
+              browserWrapper.shouldRestart = true;
+              logger.info('Marking browser for restart due to age');
+            } else if (browserWrapper.errorCount > 10) {
+              browserWrapper.shouldRestart = true;
+              logger.info('Marking browser for restart due to error count');
+            }
           }
 
-          if (browserWrapper.errorCount > 10) {
-            browserWrapper.shouldRestart = true;
-            logger.info('Marking browser for restart due to error count');
+          if (browserWrapper.shouldRestart && browserWrapper.activePages === 0) {
+            await this.restartBrowser(browserWrapper);
           }
         } catch (err) {
           logger.warn('Health check failed for browser:', err.message);
@@ -331,6 +451,12 @@ class BrowserPool extends EventEmitter {
       })),
     };
   }
+}
+
+function unavailableError(message) {
+  const err = new Error(message);
+  err.status = 503;
+  return err;
 }
 
 let poolInstance = null;
