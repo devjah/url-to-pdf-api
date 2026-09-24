@@ -12,6 +12,7 @@ class BrowserPool extends EventEmitter {
     this.browserTimeout = options.browserTimeout || 30000;
     this.pageTimeout = options.pageTimeout || 30000;
     this.retryLimit = options.retryLimit || 3;
+    this.maxQueueLength = options.maxQueueLength || config.MAX_QUEUE_LENGTH;
 
     this.browsers = [];
     this.queue = [];
@@ -22,6 +23,7 @@ class BrowserPool extends EventEmitter {
       totalRequests: 0,
       successfulRequests: 0,
       failedRequests: 0,
+      rejectedRequests: 0,
       queuedRequests: 0,
       activeBrowsers: 0,
       activePages: 0,
@@ -36,6 +38,13 @@ class BrowserPool extends EventEmitter {
     }
 
     this.stats.totalRequests += 1;
+
+    // A request behind a full queue would outlast the caller's own timeout,
+    // so answer 503 at once instead of piling up more waiters.
+    if (this.queue.length >= this.maxQueueLength) {
+      this.stats.rejectedRequests += 1;
+      throw unavailableError('Render queue is full');
+    }
 
     return new Promise((resolve, reject) => {
       const request = { resolve, reject, timestamp: Date.now() };
@@ -60,7 +69,7 @@ class BrowserPool extends EventEmitter {
     }
 
     if (Date.now() - request.timestamp > this.pageTimeout) {
-      request.reject(new Error('Request timeout while waiting in queue'));
+      request.reject(unavailableError('Request timeout while waiting in queue'));
       this.stats.failedRequests += 1;
       this.processQueue();
       return;
@@ -354,6 +363,12 @@ class BrowserPool extends EventEmitter {
       })),
     };
   }
+}
+
+function unavailableError(message) {
+  const err = new Error(message);
+  err.status = 503;
+  return err;
 }
 
 let poolInstance = null;

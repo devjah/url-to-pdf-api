@@ -10,6 +10,21 @@ describe('BrowserPool', () => {
 
   afterEach(() => pool.shutdown());
 
+  it('rejects with 503 at once when the queue is full', async () => {
+    pool = new BrowserPool({ maxBrowsers: 1, maxPagesPerBrowser: 1, maxQueueLength: 1 });
+    const first = await pool.acquire();
+    const queued = pool.acquire();
+
+    const startedAt = Date.now();
+    const err = await pool.acquire().catch(e => e);
+    expect(err.status).to.equal(503);
+    expect(Date.now() - startedAt).to.be.below(100);
+
+    await first.release();
+    const second = await queued;
+    await second.release();
+  });
+
   it('drains a browser marked for restart instead of killing its other pages', async () => {
     pool = new BrowserPool({ maxBrowsers: 1, maxPagesPerBrowser: 5 });
     const first = await pool.acquire();

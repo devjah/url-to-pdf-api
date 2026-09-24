@@ -54,6 +54,8 @@ and requests are direct connections to it.
 
 * Heavy pages may cause Chrome to crash if the server doesn't have enough RAM.
 
+* When every browser page is busy, requests wait in a queue of at most `MAX_QUEUE_LENGTH` (default `10`). A request that finds the queue full gets an immediate `503`, so callers can back off instead of timing out.
+
 * Docker image for this can be found here: https://github.com/restorecommerce/pdf-rendering-srv
 
 
