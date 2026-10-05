@@ -1,5 +1,6 @@
 const _ = require('lodash');
 const logger = require('../util/logger')(__filename);
+const redactUrl = require('../util/redact-url');
 
 const SLICE_THRESHOLD = 1000;
 
@@ -33,9 +34,22 @@ function getLogLevel(status) {
 }
 
 function logRequestDetails(logLevel, req) {
-  logger[logLevel]('Request headers:', deepSupressLongStrings(req.headers));
+  logger[logLevel]('Request headers:', deepSupressLongStrings(_.omit(req.headers, 'x-api-key')));
   logger[logLevel]('Request parameters:', deepSupressLongStrings(req.params));
-  logger[logLevel]('Request body:', req.body);
+  logger[logLevel]('Request body:', redactBody(req.body));
+}
+
+// The body names the page with its api_token, and the app's footer templates carry patient names.
+function redactBody(body) {
+  if (!_.isPlainObject(body)) {
+    return _.isString(body) ? '<html>' : body;
+  }
+
+  const redacted = _.omit(body, ['html', 'pdf.headerTemplate', 'pdf.footerTemplate']);
+  if (_.isString(body.url)) {
+    redacted.url = redactUrl(body.url);
+  }
+  return redacted;
 }
 
 function deepSupressLongStrings(obj) {

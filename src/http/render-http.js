@@ -5,6 +5,7 @@ const ex = require('../util/express');
 const renderCore = require('../core/render-core');
 const cache = require('../core/cache');
 const logger = require('../util/logger')(__filename);
+const redactUrl = require('../util/redact-url');
 const config = require('../config');
 
 function getMimeType(opts) {
@@ -71,7 +72,7 @@ function sendBuffer(opts, res, buf) {
 }
 
 function logCache(status, opts) {
-  const target = opts.url || '<html>';
+  const target = opts.url ? redactUrl(opts.url) : '<html>';
   const v = opts.v ? ` v=${opts.v}` : '';
   logger.debug(`[cache] ${status} ${target}${v}`);
 }

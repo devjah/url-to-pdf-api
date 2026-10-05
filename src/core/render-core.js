@@ -2,6 +2,7 @@ const puppeteer = require('puppeteer');
 const _ = require('lodash');
 const config = require('../config');
 const logger = require('../util/logger')(__filename);
+const redactUrl = require('../util/redact-url');
 const { getPool } = require('./browser-pool');
 
 
@@ -146,7 +147,7 @@ async function render(_opts = {}) {
       logger.info('Set HTML ..');
       await page.setContent(opts.html, opts.goto);
     } else {
-      logger.info(`Goto url ${opts.url} ..`);
+      logger.info(`Goto url ${redactUrl(opts.url)} ..`);
       await page.goto(opts.url, opts.goto);
     }
 
@@ -173,7 +174,7 @@ async function render(_opts = {}) {
       }
     }
     if (opts.failEarly === 'page' && this.mainUrlResponse.status !== 200) {
-      const msg = `Request for ${opts.url} did not directly succeed and returned status ${this.mainUrlResponse.status}`;
+      const msg = `Request for ${redactUrl(opts.url)} did not directly succeed and returned status ${this.mainUrlResponse.status}`;
       const err = new Error(msg);
       err.status = 412;
       throw err;
@@ -269,6 +270,15 @@ function logOpts(opts) {
   if (opts.html) {
     supressedOpts.html = '...';
   }
+  if (opts.url) {
+    supressedOpts.url = redactUrl(opts.url);
+  }
+  // The app's footers carry its own text, a patient's name among it.
+  ['headerTemplate', 'footerTemplate'].forEach((key) => {
+    if (_.get(opts, ['pdf', key])) {
+      supressedOpts.pdf[key] = '...';
+    }
+  });
 
   logger.info(`Rendering with opts: ${JSON.stringify(supressedOpts, null, 2)}`);
 }
